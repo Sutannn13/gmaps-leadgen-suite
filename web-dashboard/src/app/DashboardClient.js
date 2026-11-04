@@ -44,6 +44,39 @@ function getShopLabel(url) {
   return 'Olshop';
 }
 
+function formatScrapedAt(rawDate) {
+  if (!rawDate) return '-';
+  try {
+    const d = new Date(rawDate);
+    if (isNaN(d.getTime())) return String(rawDate);
+    return new Intl.DateTimeFormat('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(d).replace(/\./g, ':');
+  } catch {
+    return String(rawDate);
+  }
+}
+
+function formatTimeOnly(rawDate) {
+  if (!rawDate) return '';
+  try {
+    const d = new Date(rawDate);
+    if (isNaN(d.getTime())) return '';
+    return new Intl.DateTimeFormat('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(d).replace(/\./g, ':');
+  } catch {
+    return '';
+  }
+}
+
 function getQualificationStyles(qual = '') {
   if (qual.includes('HOT')) {
     return {
@@ -79,6 +112,7 @@ export default function DashboardClient({
   const [channelFilter, setChannelFilter] = useState('ALL'); // 'ALL' | 'HAS_WA' | 'HAS_SHOP' | 'HAS_SOCIAL'
   const [aiFilter, setAiFilter] = useState('ALL'); // 'ALL' | 'HOT' | 'WARM' | 'COLD' | 'UNRESEARCHED'
   const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [chatFilter, setChatFilter] = useState('ALL'); // 'ALL' | 'UNCONTACTED' | 'CONTACTED'
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [pageState, setPageState] = useState({ page: 1, filterKey: '' });
 
@@ -139,7 +173,7 @@ export default function DashboardClient({
   }, [leads, selectedLeadId]);
 
   const filteredLeads = useMemo(() => {
-    return leads.filter((lead) => {
+    const result = leads.filter((lead) => {
       const evalInfo = evaluationById.get(String(lead.id)) || evaluateLeadQualification(lead);
 
       if (viabilityFilter === 'ELIGIBLE' && evalInfo.recommendDelete) return false;
@@ -166,6 +200,9 @@ export default function DashboardClient({
       if (aiFilter === 'COLD' && !qual.includes('COLD')) return false;
       if (aiFilter === 'UNRESEARCHED' && lead.aiResearch) return false;
 
+      if (chatFilter === 'UNCONTACTED' && lead.chatStatus === 'SUDAH') return false;
+      if (chatFilter === 'CONTACTED' && lead.chatStatus !== 'SUDAH') return false;
+
       const leadCat = lead.categoryName || 'Tanpa Kategori';
       if (categoryFilter !== 'ALL' && leadCat !== categoryFilter) return false;
 
@@ -187,8 +224,16 @@ export default function DashboardClient({
 
       return true;
     });
-  }, [
-    leads,
+
+    return result.sort((a, b) => {
+      const timeA = a.scrapedAt ? new Date(a.scrapedAt).getTime() : 0;
+      const timeB = b.scrapedAt ? new Date(b.scrapedAt).getTime() : 0;
+      if (!isNaN(timeA) && !isNaN(timeB) && timeB !== timeA) {
+        return timeB - timeA;
+      }
+      return Number(b.id || 0) - Number(a.id || 0);
+    });
+  }, [leads,
     evaluationById,
     viabilityFilter,
     searchQuery,
@@ -196,10 +241,9 @@ export default function DashboardClient({
     ratingFilter,
     channelFilter,
     aiFilter,
-    categoryFilter,
-  ]);
+    categoryFilter,, chatFilter]);
 
-  const filterKey = `${viabilityFilter}|${searchQuery}|${websiteFilter}|${ratingFilter}|${channelFilter}|${aiFilter}|${categoryFilter}`;
+  const filterKey = `${viabilityFilter}|${searchQuery}|${websiteFilter}|${ratingFilter}|${channelFilter}|${aiFilter}|${categoryFilter}|${chatFilter}`;
   const totalPages = Math.max(1, Math.ceil(filteredLeads.length / PAGE_SIZE));
   const activePage = pageState.filterKey === filterKey ? pageState.page : 1;
   const safePage = Math.min(activePage, totalPages);
@@ -222,6 +266,7 @@ export default function DashboardClient({
     channelFilter !== 'ALL',
     aiFilter !== 'ALL',
     categoryFilter !== 'ALL',
+    chatFilter !== 'ALL',
   ].filter(Boolean).length;
 
   const hasActiveFilters = searchQuery.trim() !== '' || activeFilterCount > 0;
@@ -234,6 +279,7 @@ export default function DashboardClient({
     setChannelFilter('ALL');
     setAiFilter('ALL');
     setCategoryFilter('ALL');
+    setChatFilter('ALL');
   };
 
   const categoryCounts = useMemo(() => {
@@ -266,6 +312,14 @@ export default function DashboardClient({
     [leads]
   );
   const researchedCount = useMemo(() => leads.filter((l) => Boolean(l.aiResearch)).length, [leads]);
+  const chatContactedCount = useMemo(
+    () => leads.filter((l) => l.chatStatus === 'SUDAH').length,
+    [leads]
+  );
+  const chatUncontactedCount = useMemo(
+    () => leads.filter((l) => l.chatStatus !== 'SUDAH').length,
+    [leads]
+  );
 
   // Bulk AI queue automatically skips leads flagged for deletion to save tokens
   const eligibleUnresearchedInFilter = useMemo(
@@ -276,6 +330,63 @@ export default function DashboardClient({
         return !ev?.recommendDelete;
       }),
     [filteredLeads, evaluationById]
+  );
+
+    const toggleChatStatus = useCallback(async (lead, forcedStatus = null) => {
+    const nextStatus = forcedStatus || (lead.chatStatus === 'SUDAH' ? 'BELUM' : 'SUDAH');
+    const nextContactedAt = nextStatus === 'SUDAH' ? new Date().toISOString() : null;
+
+    setLeads((prev) =>
+      prev.map((l) =>
+        String(l.id) === String(lead.id)
+          ? { ...l, chatStatus: nextStatus, contactedAt: nextContactedAt }
+          : l
+      )
+    );
+
+    try {
+      const res = await fetch('/api/leads/chat-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: lead.id,
+          chatStatus: nextStatus,
+          contactedAt: nextContactedAt,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      setNotice({
+        type: 'success',
+        text:
+          nextStatus === 'SUDAH'
+            ? `"${lead.name}" ditandai: Selesai (Sudah Dichat).`
+            : `Status chat "${lead.name}" direset ke Belum Dichat.`,
+      });
+    } catch (err) {
+      console.error('Update chat status failed:', err);
+      setLeads((prev) =>
+        prev.map((l) => (String(l.id) === String(lead.id) ? lead : l))
+      );
+      setNotice({
+        type: 'error',
+        text: err.message || 'Gagal mengubah status chat.',
+      });
+    }
+  }, []);
+
+  const handleOpenChat = useCallback(
+    (lead, waUrl) => {
+      if (waUrl) {
+        window.open(waUrl, '_blank', 'noopener,noreferrer');
+      }
+      if (lead.chatStatus !== 'SUDAH') {
+        toggleChatStatus(lead, 'SUDAH');
+      }
+    },
+    [toggleChatStatus]
   );
 
   const persistAiToDb = useCallback(async (id, aiResearch) => {
@@ -753,6 +864,8 @@ export default function DashboardClient({
       'Follow Up WA',
       'Maps URL',
       'Tanggal Scrape',
+      'Status Chat',
+      'Waktu Dichat',
     ];
 
     const escapeCsv = (val) => `"${String(val ?? '').replace(/"/g, '""')}"`;
@@ -784,6 +897,8 @@ export default function DashboardClient({
           l.aiResearch?.followUpDraft,
           l.mapsUrl,
           l.scrapedAt,
+          l.chatStatus === 'SUDAH' ? 'Sudah Dichat' : 'Belum Dichat',
+          l.contactedAt || '',
         ]
           .map(escapeCsv)
           .join(',');
@@ -1120,7 +1235,33 @@ export default function DashboardClient({
             mobileFiltersOpen ? 'block' : 'hidden'
           } md:block space-y-3.5 pt-3 border-t border-zinc-800/70 text-xs`}
         >
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+            {/* Status Chat Filter */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
+                Status Chat WA
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { id: 'ALL', label: 'Semua' },
+                  { id: 'UNCONTACTED', label: `Belum (${chatUncontactedCount})` },
+                  { id: 'CONTACTED', label: `Selesai (${chatContactedCount})` },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setChatFilter(opt.id)}
+                    className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
+                      chatFilter === opt.id
+                        ? 'bg-zinc-100 text-zinc-950 font-semibold shadow-sm'
+                        : 'bg-zinc-900/90 text-zinc-400 border border-zinc-800 hover:text-zinc-200'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             {/* Viability Filter */}
             <div className="space-y-1.5">
               <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
@@ -1473,14 +1614,17 @@ export default function DashboardClient({
                     <div className="pt-2.5 border-t border-zinc-800/80 flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {waUrl ? (
-                          <a
-                            href={waUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-100 hover:bg-white text-zinc-950 transition-colors"
+                          <button
+                            type="button"
+                            onClick={() => handleOpenChat(lead, waUrl)}
+                            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-100 hover:bg-white text-zinc-950 transition-colors inline-flex items-center gap-1"
+                            title="Buka WhatsApp & otomatis tandai selesai dichat"
                           >
-                            Chat WA
-                          </a>
+                            <span>Chat WA</span>
+                            {lead.chatStatus === 'SUDAH' && (
+                              <span className="text-emerald-700 font-bold">&#10003;</span>
+                            )}
+                          </button>
                         ) : (
                           <span className="px-2.5 py-1.5 rounded-lg text-xs text-zinc-600 bg-zinc-900/60 border border-zinc-800/60">
                             Tanpa WA
@@ -1543,13 +1687,14 @@ export default function DashboardClient({
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-zinc-800 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider bg-[#16161a]">
-                      <th className="py-3.5 px-4">Nama Bisnis</th>
+                      <th className="py-3.5 px-4">Nama Bisnis &amp; Waktu Import</th>
                       <th className="py-3.5 px-3">Rating</th>
                       <th className="py-3.5 px-4">Alamat</th>
                       <th className="py-3.5 px-4">Kontak</th>
                       <th className="py-3.5 px-3">Website</th>
                       <th className="py-3.5 px-3">Sosmed / Olshop</th>
                       <th className="py-3.5 px-3">Kualifikasi &amp; AI</th>
+                      <th className="py-3.5 px-3">Status Chat</th>
                       <th className="py-3.5 px-4 text-right">Aksi</th>
                     </tr>
                   </thead>
@@ -1588,8 +1733,12 @@ export default function DashboardClient({
                               {lead.name}
                             </div>
                             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                              <span className="text-[11px] text-zinc-500 truncate max-w-[140px]">
+                              <span className="text-[11px] text-zinc-500 truncate max-w-[120px]">
                                 {lead.categoryName || 'Bisnis Lokal'}
+                              </span>
+                              <span className="text-zinc-600">&bull;</span>
+                              <span className="text-zinc-400 font-mono text-[10px]" title={`Waktu import: ${formatScrapedAt(lead.scrapedAt)}`}>
+                                🕒 {formatScrapedAt(lead.scrapedAt)}
                               </span>
                               {evalInfo.recommendDelete ? (
                                 <button
@@ -1722,17 +1871,49 @@ export default function DashboardClient({
                             )}
                           </td>
 
+                          <td className="py-3 px-3 whitespace-nowrap">
+                            {lead.chatStatus === 'SUDAH' ? (
+                              <button
+                                type="button"
+                                onClick={() => toggleChatStatus(lead)}
+                                title="Klik untuk ubah kembali ke Belum Dichat"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-emerald-950/60 text-emerald-300 border border-emerald-800/80 hover:border-emerald-600 transition-colors"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                <span>Selesai (Dichat)</span>
+                                {lead.contactedAt && (
+                                  <span className="text-[10px] text-emerald-400/80 font-mono">
+                                    {formatTimeOnly(lead.contactedAt)}
+                                  </span>
+                                )}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => toggleChatStatus(lead)}
+                                title="Klik untuk tandai sudah dichat"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-zinc-900 hover:bg-zinc-800 text-zinc-400 border border-zinc-800 hover:border-zinc-700 transition-colors"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+                                <span>Belum Dichat</span>
+                              </button>
+                            )}
+                          </td>
+
                           <td className="py-3 px-4 text-right whitespace-nowrap">
                             <div className="inline-flex items-center gap-1.5">
                               {waUrl ? (
-                                <a
-                                  href={waUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="px-2.5 py-1 bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-semibold rounded-lg transition-colors"
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenChat(lead, waUrl)}
+                                  className="px-2.5 py-1 bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-semibold rounded-lg transition-colors inline-flex items-center gap-1"
+                                  title="Buka WhatsApp & otomatis tandai selesai dichat"
                                 >
-                                  Chat WA
-                                </a>
+                                  <span>Chat WA</span>
+                                  {lead.chatStatus === 'SUDAH' && (
+                                    <span className="text-emerald-700 font-bold">&#10003;</span>
+                                  )}
+                                </button>
                               ) : (
                                 <span className="text-zinc-600 text-xs px-2">-</span>
                               )}

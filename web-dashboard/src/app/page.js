@@ -24,10 +24,12 @@ export default async function Dashboard() {
         l."scrapedAt", 
         l.rating,
         l."reviewCount",
+        COALESCE(l."chatStatus", 'BELUM') as "chatStatus",
+        l."contactedAt",
         c.name as "categoryName"
       FROM "Lead" l
       LEFT JOIN "Category" c ON l."categoryId" = c.id
-      ORDER BY l."scrapedAt" DESC
+      ORDER BY l."scrapedAt" DESC, l.id DESC
     `,
     sql`SELECT * FROM "Category" ORDER BY name`,
     getPublicAiSettingsFromDb({ sqlImpl: sql }),

@@ -63,7 +63,8 @@ export async function POST(request) {
             "aiResearch" = COALESCE(${aiResearchJson}::jsonb, "aiResearch"),
             rating = COALESCE(NULLIF(${lead.rating || ''}, ''), rating),
             "reviewCount" = COALESCE(NULLIF(${lead.reviewCount || ''}, ''), "reviewCount"),
-            "mapsUrl" = COALESCE(NULLIF(${lead.mapsUrl || ''}, ''), "mapsUrl")
+            "mapsUrl" = COALESCE(NULLIF(${lead.mapsUrl || ''}, ''), "mapsUrl"),
+            "scrapedAt" = COALESCE(NULLIF(${lead.scrapedAt || ''}, ''), "scrapedAt")
           WHERE id = ${existing[0].id}
         `;
         updatedCount++;
@@ -82,7 +83,9 @@ export async function POST(request) {
             "scrapedAt", 
             "categoryId", 
             rating, 
-            "reviewCount"
+            "reviewCount",
+            "chatStatus",
+            "contactedAt"
           )
           VALUES (
             ${lead.name}, 
@@ -97,7 +100,9 @@ export async function POST(request) {
             ${lead.scrapedAt || new Date().toISOString()}, 
             ${finalCatId},
             ${lead.rating || ''},
-            ${lead.reviewCount || ''}
+            ${lead.reviewCount || ''},
+            ${lead.chatStatus || 'BELUM'},
+            ${lead.contactedAt || null}
           )
         `;
         insertedCount++;

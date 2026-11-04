@@ -5,6 +5,7 @@ const PROTECTED_API_PATHS = [
   '/api/delete-all',
   '/api/delete-batch',
   '/api/leads/ai',
+  '/api/leads/chat-status',
   '/api/ai/deepseek',
   '/api/ai/openrouter',
   '/api/ai/settings',
