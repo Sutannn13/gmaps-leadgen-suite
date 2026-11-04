@@ -12,7 +12,7 @@ export async function POST(request) {
     let manualCatId = null;
     if (categoryName) {
       let cat = await sql`SELECT id FROM "Category" WHERE name = ${categoryName}`;
-        
+
       if (cat.length === 0) {
         const result = await sql`INSERT INTO "Category" (name) VALUES (${categoryName}) RETURNING id`;
         manualCatId = result[0].id;
@@ -24,11 +24,11 @@ export async function POST(request) {
     // 2. Insert or update leads
     let insertedCount = 0;
     let updatedCount = 0;
-    
+
     for (const lead of data) {
       const finalCategoryName = categoryName || lead.category;
       let finalCatId = manualCatId;
-      
+
       if (!categoryName && finalCategoryName) {
         let c = await sql`SELECT id FROM "Category" WHERE name = ${finalCategoryName}`;
         if (c.length === 0) {
@@ -39,7 +39,7 @@ export async function POST(request) {
         }
       }
 
-      const aiResearchJson = lead.aiResearch 
+      const aiResearchJson = lead.aiResearch
         ? (typeof lead.aiResearch === 'string' ? lead.aiResearch : JSON.stringify(lead.aiResearch))
         : null;
 
@@ -109,11 +109,11 @@ export async function POST(request) {
       }
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       inserted: insertedCount,
       updated: updatedCount,
-      total: insertedCount + updatedCount 
+      total: insertedCount + updatedCount
     });
   } catch (error) {
     console.error('Import error:', error);
