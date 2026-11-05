@@ -217,19 +217,25 @@ if (!window.__GMAPS_LEADGEN_CONTENT_LOADED__) {
   }
 
   function extractDetailFromPanel(fallbackName, cardHref = '') {
-    const mainPanel = document.querySelector('[role="main"]') || document;
-    const nameEl = document.querySelector('h1.DUwDvf') || mainPanel.querySelector('h1');
+    const feed = getFeed();
+    const nameEl = document.querySelector('h1.DUwDvf') || document.querySelector('[role="main"] h1');
     let name = (nameEl && nameEl.textContent.trim()) || fallbackName || '(tanpa nama)';
     name = name.replace(/[·\•]\s*(?:Link yang dikunjungi|Visited link|Ditampilkan)\b.*/i, '').trim();
 
-    const isClosed = detectClosedStatus(mainPanel);
+    // Isolasi container khusus panel tempat (detail panel), JANGAN ambil elemen dari feed pencarian
+    const placePanel = nameEl
+      ? nameEl.closest('.m6QErb.DxyBCb') || nameEl.closest('.m6QErb') || nameEl.closest('[role="main"]') || document
+      : document.querySelector('[role="main"]') || document;
+
+    const isClosed = detectClosedStatus(placePanel);
     if (isClosed && !/tutup permanen|tutup sementara/i.test(name)) {
       name = `${name} (Tutup Permanen)`;
     }
 
-    // Alamat
+    // Alamat (hanya dari dalam panel toko, mutlak hindari feed)
     let address = '';
-    const addrBtn = document.querySelector('[data-item-id="address"]');
+    const addrBtn = placePanel.querySelector('[data-item-id="address"]') ||
+      Array.from(document.querySelectorAll('[data-item-id="address"]')).find(el => !feed || !feed.contains(el));
     if (addrBtn) {
       const aria = addrBtn.getAttribute('aria-label') || '';
       if (aria) address = stripPrefix(aria, ['Alamat:', 'Address:', 'Salin alamat']);
@@ -239,13 +245,16 @@ if (!window.__GMAPS_LEADGEN_CONTENT_LOADED__) {
       }
     }
     if (!address) {
-      const addrMatch = findByAriaPrefixes(['Address:', 'Alamat:'], mainPanel);
-      if (addrMatch) address = stripPrefix(addrMatch.label, ['Address:', 'Alamat:']);
+      const addrMatch = findByAriaPrefixes(['Address:', 'Alamat:'], placePanel);
+      if (addrMatch && (!feed || !feed.contains(addrMatch.el))) {
+        address = stripPrefix(addrMatch.label, ['Address:', 'Alamat:']);
+      }
     }
 
-    // Telepon
+    // Telepon (hanya dari dalam panel toko, mutlak hindari feed)
     let phone = '';
-    const phoneBtn = document.querySelector('[data-item-id^="phone:tel:"]');
+    const phoneBtn = placePanel.querySelector('[data-item-id^="phone:tel:"]') ||
+      Array.from(document.querySelectorAll('[data-item-id^="phone:tel:"]')).find(el => !feed || !feed.contains(el));
     if (phoneBtn) {
       const dataId = phoneBtn.getAttribute('data-item-id') || '';
       phone = dataId.replace('phone:tel:', '').trim();
@@ -255,8 +264,10 @@ if (!window.__GMAPS_LEADGEN_CONTENT_LOADED__) {
       }
     }
     if (!phone) {
-      const phoneMatch = findByAriaPrefixes(['Phone:', 'Telepon:'], mainPanel);
-      if (phoneMatch) phone = stripPrefix(phoneMatch.label, ['Phone:', 'Telepon:']);
+      const phoneMatch = findByAriaPrefixes(['Phone:', 'Telepon:'], placePanel);
+      if (phoneMatch && (!feed || !feed.contains(phoneMatch.el))) {
+        phone = stripPrefix(phoneMatch.label, ['Phone:', 'Telepon:']);
+      }
     }
     if (phone) {
       phone = phone.replace(/[^\d+\-() ]/g, '').trim();
@@ -267,15 +278,16 @@ if (!window.__GMAPS_LEADGEN_CONTENT_LOADED__) {
     let onlineShop = '';
     let whatsapp = '';
 
-    // 1. Hanya ambil website dari elemen otoritas resmi Maps (mencegah false positive link pihak ketiga)
-    const authorityEl = document.querySelector('[data-item-id="authority"]');
+    // 1. Ambil website resmi dari elemen otoritas Maps di DALAM panel toko (bukan dari feed kartu lain)
+    const authorityEl = placePanel.querySelector('[data-item-id="authority"]') ||
+      Array.from(document.querySelectorAll('[data-item-id="authority"]')).find(el => !feed || !feed.contains(el));
     let rawAuthority = '';
     if (authorityEl) {
       rawAuthority = (authorityEl.getAttribute('href') || authorityEl.textContent || '').trim();
     }
     if (!rawAuthority) {
-      const webMatch = findByAriaPrefixes(['Website:', 'Situs Web:'], mainPanel);
-      if (webMatch) {
+      const webMatch = findByAriaPrefixes(['Website:', 'Situs Web:'], placePanel);
+      if (webMatch && (!feed || !feed.contains(webMatch.el))) {
         rawAuthority = (
           webMatch.el.getAttribute('href') ||
           stripPrefix(webMatch.label, ['Website:', 'Situs Web:'])
@@ -297,8 +309,16 @@ if (!window.__GMAPS_LEADGEN_CONTENT_LOADED__) {
       }
     }
 
-    // 2. Scan anchor di dalam panel detail KHUSUS untuk menangkap Sosmed, Marketplace, & WA tambahan
-    const detailLinks = Array.from(mainPanel.querySelectorAll('a[href]'));
+    // 2. Scan anchor detail KHUSUS di dalam placePanel (MUTLAK abaikan semua link di dalam feed pencarian!)
+    const detailLinks = Array.from(placePanel.querySelectorAll('a[href]')).filter(a => {
+      if (feed && feed.contains(a)) return false;
+      const href = (a.getAttribute('href') || '').toLowerCase();
+      if (href.includes('/contrib/') || href.includes('/reviews') || href.includes('/photos') || href.includes('/maps/place/') || href.includes('/maps/dir/')) {
+        return false;
+      }
+      return true;
+    });
+
     for (const a of detailLinks) {
       const href = (a.getAttribute('href') || '').trim();
       if (!href) continue;

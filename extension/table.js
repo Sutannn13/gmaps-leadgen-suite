@@ -261,6 +261,10 @@ function cleanLead(l) {
   let whatsapp = (l.whatsapp || '').trim();
   let address = rawAddr.trim();
   let socialMedia = (l.socialMedia || '').trim();
+  // Sanitasi Harpac Instagram jika menempel ke toko lain
+  if (socialMedia.toLowerCase().includes('harpacpadelcourt') && !name.toLowerCase().includes('harpac')) {
+    socialMedia = '';
+  }
   let onlineShop = (l.onlineShop || '').trim();
   let aiResearch = l.aiResearch ? sanitizeAiResult(l.aiResearch) : null;
 
