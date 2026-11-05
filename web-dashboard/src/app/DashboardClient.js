@@ -931,7 +931,7 @@ export default function DashboardClient({
   );
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-5">
+    <div className="max-w-7xl xl:max-w-[1540px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-5">
       {/* 1. PAGE HEADER & PRIMARY ACTIONS */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-zinc-800/80">
         <div className="space-y-1">
@@ -1659,9 +1659,13 @@ export default function DashboardClient({
                           href={mapsHref}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-200 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-zinc-700/80 transition-colors shadow-sm"
+                          title="Buka lokasi di Google Maps"
                         >
-                          Maps
+                          <svg className="w-3.5 h-3.5 text-rose-400 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z"/>
+                          </svg>
+                          <span>Maps</span>
                         </a>
                         <button
                           type="button"
@@ -1684,7 +1688,7 @@ export default function DashboardClient({
             {/* DESKTOP TABLE VIEW (lg+) */}
             <div className="hidden lg:block rounded-xl clean-card overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
+                <table className="w-full text-left border-collapse min-w-[1050px]">
                   <thead>
                     <tr className="border-b border-zinc-800 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider bg-[#16161a]">
                       <th className="py-3.5 px-4">Nama Bisnis &amp; Waktu Import</th>
@@ -1695,7 +1699,7 @@ export default function DashboardClient({
                       <th className="py-3.5 px-3">Sosmed / Olshop</th>
                       <th className="py-3.5 px-3">Kualifikasi &amp; AI</th>
                       <th className="py-3.5 px-3">Status Chat</th>
-                      <th className="py-3.5 px-4 text-right">Aksi</th>
+                      <th className="py-3.5 px-4 text-right sticky right-0 bg-[#16161a] z-20 shadow-[-8px_0_12px_-4px_rgba(0,0,0,0.6)] border-l border-zinc-800/80 min-w-[190px]">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/60 text-xs text-zinc-300">
@@ -1724,13 +1728,20 @@ export default function DashboardClient({
                       return (
                         <tr
                           key={key}
-                          className={`hover:bg-zinc-800/30 transition-colors ${
-                            evalInfo.recommendDelete ? 'bg-rose-950/10' : ''
+                          className={`group transition-colors ${
+                            evalInfo.recommendDelete ? 'bg-rose-950/10 hover:bg-rose-950/20' : 'hover:bg-zinc-800/30'
                           }`}
                         >
                           <td className="py-3 px-4 max-w-[230px]">
-                            <div className="font-medium text-white truncate" title={lead.name}>
-                              {lead.name}
+                            <div className="font-medium text-white truncate" title={`Buka "${lead.name}" di Google Maps`}>
+                              <a
+                                href={mapsHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="hover:text-indigo-300 hover:underline transition-colors"
+                              >
+                                {lead.name}
+                              </a>
                             </div>
                             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                               <span className="text-[11px] text-zinc-500 truncate max-w-[120px]">
@@ -1776,9 +1787,15 @@ export default function DashboardClient({
                           </td>
 
                           <td className="py-3 px-4 max-w-[210px]">
-                            <div className="text-zinc-400 truncate" title={lead.address}>
+                            <a
+                              href={mapsHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-zinc-400 hover:text-zinc-200 truncate block transition-colors"
+                              title={`Buka alamat di Google Maps: ${lead.address || '-'}`}
+                            >
                               {lead.address || '-'}
-                            </div>
+                            </a>
                           </td>
 
                           <td className="py-3 px-4 whitespace-nowrap">
@@ -1900,13 +1917,19 @@ export default function DashboardClient({
                             )}
                           </td>
 
-                          <td className="py-3 px-4 text-right whitespace-nowrap">
-                            <div className="inline-flex items-center gap-1.5">
+                          <td
+                            className={`py-3 px-4 text-right whitespace-nowrap sticky right-0 z-10 shadow-[-8px_0_12px_-4px_rgba(0,0,0,0.6)] border-l border-zinc-800/80 min-w-[190px] transition-colors ${
+                              evalInfo.recommendDelete
+                                ? 'bg-[#181215] group-hover:bg-[#20151a]'
+                                : 'bg-[#121215] group-hover:bg-[#18181c]'
+                            }`}
+                          >
+                            <div className="inline-flex items-center justify-end gap-1.5">
                               {waUrl ? (
                                 <button
                                   type="button"
                                   onClick={() => handleOpenChat(lead, waUrl)}
-                                  className="px-2.5 py-1 bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-semibold rounded-lg transition-colors inline-flex items-center gap-1"
+                                  className="px-2.5 py-1 bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-semibold rounded-lg transition-colors inline-flex items-center gap-1 shrink-0"
                                   title="Buka WhatsApp & otomatis tandai selesai dichat"
                                 >
                                   <span>Chat WA</span>
@@ -1915,22 +1938,26 @@ export default function DashboardClient({
                                   )}
                                 </button>
                               ) : (
-                                <span className="text-zinc-600 text-xs px-2">-</span>
+                                <span className="text-zinc-600 text-xs px-2 shrink-0">-</span>
                               )}
 
                               <a
                                 href={mapsHref}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="px-2 py-1 text-zinc-400 hover:text-white text-xs font-medium rounded-lg hover:bg-zinc-800 transition-colors"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-zinc-200 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-zinc-700/80 rounded-lg transition-colors shrink-0 shadow-sm"
+                                title="Buka lokasi di Google Maps"
                               >
-                                Maps
+                                <svg className="w-3.5 h-3.5 text-rose-400 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z"/>
+                                </svg>
+                                <span>Maps</span>
                               </a>
 
                               <button
                                 type="button"
                                 disabled={isDeleting}
-                                className="p-1.5 text-zinc-500 hover:text-rose-400 hover:bg-rose-950/30 rounded-lg transition-colors disabled:opacity-40"
+                                className="p-1.5 text-zinc-500 hover:text-rose-400 hover:bg-rose-950/30 rounded-lg transition-colors disabled:opacity-40 shrink-0"
                                 onClick={() => handleDelete(lead)}
                                 title="Hapus baris ini"
                               >
