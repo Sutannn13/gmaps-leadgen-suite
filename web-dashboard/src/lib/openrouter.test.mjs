@@ -5,6 +5,13 @@ import {
   ensureFreeModelId,
   filterFreeModels,
   humanizeGeneratedText,
+  DEFAULT_MUSE_MODEL,
+  extractBusinessIdentity,
+  buildDefaultWaPitch,
+  buildGroundedMuseResearch,
+  analyzeLeadWithMuse,
+  buildQualificationReplyDraft,
+  buildMuseMockupBridgePrompt,
   buildLeadPrompt,
   parseAiResearchResponse,
   analyzeLeadWithAi,
@@ -193,4 +200,66 @@ test('analyzeLeadWithOpenRouter fails fast on missing API key and surfaces 429 r
       ),
     (err) => err.code === 'RATE_LIMITED' && err.status === 429 && err.retryable === true
   );
+});
+
+test('extractBusinessIdentity and buildDefaultWaPitch clean SEO-stuffed store names and use Tim Developer KodeKiri', async () => {
+  const seoLead = {
+    name: 'Ofcourse.apparel | Jasa Sablon DTF dan Plastisol Terdekat Di Depok | Sablon Kaos Satuan',
+    categoryName: 'Jasa Sablon',
+    address: 'Depok, Jawa Barat',
+    phone: '081210670001',
+    rating: '4.9',
+    reviewCount: '124',
+  };
+
+  const identity = extractBusinessIdentity(seoLead.name, seoLead.categoryName, seoLead.address);
+  assert.equal(identity.cleanBrandName, 'Ofcourse Apparel');
+  assert.ok(identity.extractedSpecialty.toLowerCase().includes('sablon dtf'));
+  assert.equal(identity.nicheBucket, 'SABLON_KONVEKSI');
+
+  const chat1 = buildDefaultWaPitch(seoLead);
+  assert.ok(chat1.includes('Halo Kak, admin Ofcourse Apparel ya?'));
+  assert.ok(chat1.includes('Tim Developer KodeKiri'));
+  assert.ok(!chat1.includes('|'));
+  assert.ok(!chat1.includes('https://'));
+  assert.ok(chat1.includes('buatkan gambaran tampilan web singkat'));
+
+  const chat2 = buildQualificationReplyDraft(seoLead);
+  assert.ok(chat2.includes('https://kodekiri.tech'));
+  assert.ok(chat2.includes('Ofcourse Apparel'));
+
+  const musePrompt = buildMuseMockupBridgePrompt(seoLead, {
+    clientNotes: 'Sablon DTF & plastisol lusinan',
+    referenceUrl: 'https://contoh-sablon-premium.com',
+  });
+  assert.ok(musePrompt.includes('ZERO REFERENCE LEAK'));
+  assert.ok(musePrompt.includes('ZERO DUMMY ADDRESS/CONTACT'));
+  assert.ok(musePrompt.includes('ZERO FABRICATED PRICING'));
+  assert.ok(musePrompt.includes('MAKSIMAL 4 SECTION'));
+  assert.ok(musePrompt.includes('Tim Developer KodeKiri'));
+
+  // Test Muse.ai default provider & grounded research without external API keys
+  assert.equal(resolveActiveProvider({}), 'muse');
+  const museResearch = buildGroundedMuseResearch(seoLead);
+  assert.equal(museResearch.leadQualification, 'HOT LEAD');
+  assert.equal(museResearch.hasOfficialWebsite, false);
+  assert.equal(museResearch.modelUsed, DEFAULT_MUSE_MODEL);
+  assert.ok(museResearch.pitchDraft.includes('Ofcourse Apparel'));
+
+  const museViaApi = await analyzeLeadWithMuse(
+    seoLead,
+    {},
+    {
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          aiResearch: museResearch,
+        }),
+      }),
+    }
+  );
+  assert.equal(museViaApi.leadQualification, 'HOT LEAD');
+  assert.equal(museViaApi.modelUsed, DEFAULT_MUSE_MODEL);
 });

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { openDb } from '@/lib/db';
+import { deleteLeadsFromRepo } from '@/lib/leadsRepository';
 
 const MAX_BATCH_SIZE = 500;
 
@@ -33,16 +33,10 @@ export async function POST(request) {
       );
     }
 
-    const sql = await openDb();
-    const deleted = await sql`
-      DELETE FROM "Lead"
-      WHERE id::text = ANY(${cleanIds})
-      RETURNING id
-    `;
-
+    const deletedCount = await deleteLeadsFromRepo(cleanIds);
     return NextResponse.json({
       success: true,
-      deletedCount: Array.isArray(deleted) ? deleted.length : cleanIds.length,
+      deletedCount,
     });
   } catch (err) {
     console.error('Batch delete failed:', { message: err?.message });
@@ -52,4 +46,3 @@ export async function POST(request) {
     );
   }
 }
-

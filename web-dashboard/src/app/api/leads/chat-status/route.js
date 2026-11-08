@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { openDb } from '@/lib/db';
+import { updateLeadChatStatusInRepo } from '@/lib/leadsRepository';
 
 export async function POST(request) {
   try {
@@ -22,27 +22,7 @@ export async function POST(request) {
       );
     }
 
-    const id = String(rawId).trim();
-    const sql = await openDb();
-
-    if (/^\d+$/.test(id)) {
-      await sql`
-        UPDATE "Lead"
-        SET 
-          "chatStatus" = ${chatStatus},
-          "contactedAt" = ${contactedAt}
-        WHERE id = ${id}::bigint
-      `;
-    } else {
-      await sql`
-        UPDATE "Lead"
-        SET 
-          "chatStatus" = ${chatStatus},
-          "contactedAt" = ${contactedAt}
-        WHERE id::text = ${id}
-      `;
-    }
-
+    await updateLeadChatStatusInRepo(rawId, chatStatus, contactedAt);
     return NextResponse.json({
       success: true,
       chatStatus,

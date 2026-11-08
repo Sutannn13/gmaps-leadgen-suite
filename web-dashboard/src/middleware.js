@@ -9,6 +9,11 @@ const PROTECTED_API_PATHS = [
   '/api/ai/deepseek',
   '/api/ai/openrouter',
   '/api/ai/settings',
+  '/api/ai/muse-queue',
+  '/api/ai/muse-research',
+  '/api/ai/muse-scrape',
+  '/api/automation/control',
+  '/api/automation/tick',
 ];
 
 export function middleware(request) {

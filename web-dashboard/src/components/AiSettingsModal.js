@@ -19,7 +19,7 @@ export default function AiSettingsModal({ settings, onClose, onSave }) {
     clearOpenrouterKey: false,
   }));
   const [activeConfigTab, setActiveConfigTab] = useState(
-    () => (settings?.primaryProvider === 'openrouter' ? 'openrouter' : 'deepseek')
+    () => (['muse', 'deepseek', 'openrouter'].includes(settings?.primaryProvider) ? settings.primaryProvider : 'muse')
   );
   const [showDeepseekKey, setShowDeepseekKey] = useState(false);
   const [showOpenrouterKey, setShowOpenrouterKey] = useState(false);
@@ -82,7 +82,7 @@ export default function AiSettingsModal({ settings, onClose, onSave }) {
         cloudOpenrouterReady: cloudOpenrouterActive,
       };
       const res = await testAiProviderConnection(provider, testSettings);
-      const label = provider === 'deepseek' ? 'DeepSeek' : 'OpenRouter Free';
+      const label = provider === 'muse' ? 'Muse.ai (VM + Scrapling)' : provider === 'deepseek' ? 'DeepSeek' : 'OpenRouter Free';
       setTestResult({
         ok: true,
         provider,
@@ -190,7 +190,28 @@ export default function AiSettingsModal({ settings, onClose, onSave }) {
               <span className="font-semibold text-zinc-300 uppercase tracking-wider text-[11px] block">
                 1. Pilih Provider Utama (Default Eksekusi)
               </span>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleSelectPrimary('muse')}
+                  className={`p-3 rounded-xl border text-left transition-colors ${
+                    form.primaryProvider === 'muse'
+                      ? 'bg-emerald-950/35 border-emerald-500/80'
+                      : 'bg-[#18181b] border-zinc-800 hover:border-zinc-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-white text-xs">Muse.ai (VM)</span>
+                    <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-emerald-300">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      {form.primaryProvider === 'muse' ? 'Utama' : 'Siap'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-400 mt-1">
+                    Riset AI Masal, Scraping Lokasi Tanpa Web (Scrapling), &amp; Mockup Otomatis.
+                  </p>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => handleSelectPrimary('deepseek')}
@@ -272,6 +293,21 @@ export default function AiSettingsModal({ settings, onClose, onSave }) {
                   <button
                     type="button"
                     onClick={() => {
+                      setActiveConfigTab('muse');
+                      setTestResult(null);
+                    }}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors flex items-center gap-1.5 ${
+                      activeConfigTab === 'muse'
+                        ? 'bg-zinc-100 text-zinc-950 font-semibold'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span>Tab Muse.ai</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
                       setActiveConfigTab('deepseek');
                       setTestResult(null);
                     }}
@@ -310,7 +346,39 @@ export default function AiSettingsModal({ settings, onClose, onSave }) {
                 </div>
               </div>
 
-              {activeConfigTab === 'deepseek' ? (
+              {activeConfigTab === 'muse' ? (
+                <div className="p-3.5 rounded-xl bg-[#18181b] border border-zinc-800 space-y-3">
+                  <div className="p-2.5 rounded-lg bg-emerald-950/35 border border-emerald-900/70 flex items-center justify-between gap-2 text-[11px]">
+                    <span className="text-emerald-200">
+                      Bridge VM <code className="font-mono text-emerald-100">muse.ai/vm-scrapling</code> aktif (SSH + 16 Agent Skills terhubung).
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-emerald-900/50 text-emerald-100 font-semibold shrink-0">
+                      Tanpa API Key Eksternal
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed">
+                    Saat <strong>Muse.ai (VM)</strong> dipilih sebagai provider utama, tombol <strong>Scrape Lokasi (Muse.ai)</strong>, <strong>Riset AI Masal</strong>, dan <strong>Generate Mockup Otomatis</strong> langsung dieksekusi menggunakan engine Muse.ai + Scrapling tanpa memerlukan saldo DeepSeek maupun OpenRouter.
+                  </p>
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[11px] text-zinc-500">
+                      Model aktif: <code className="font-mono text-zinc-300">muse.ai/vm-scrapling</code>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleTest('muse')}
+                      disabled={Boolean(testingProvider)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700 transition-colors disabled:opacity-40 inline-flex items-center gap-1.5 shrink-0"
+                    >
+                      {testingProvider === 'muse' && (
+                        <span className="w-3 h-3 border-2 border-zinc-400/30 border-t-white rounded-full animate-spin" />
+                      )}
+                      <span>
+                        {testingProvider === 'muse' ? 'Menguji...' : 'Tes Muse.ai'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              ) : activeConfigTab === 'deepseek' ? (
                 <div className="p-3.5 rounded-xl bg-[#18181b] border border-zinc-800 space-y-3">
                   {cloudDeepseekActive && !form.deepseekApiKey && (
                     <div className="p-2.5 rounded-lg bg-emerald-950/35 border border-emerald-900/70 flex items-center justify-between gap-2 text-[11px]">
@@ -633,7 +701,7 @@ export default function AiSettingsModal({ settings, onClose, onSave }) {
                     type="text"
                     value={form.agencyName || ''}
                     onChange={(e) => setForm((prev) => ({ ...prev, agencyName: e.target.value }))}
-                    placeholder="Misal: Studio Web Nusantara"
+                    placeholder="Misal: Tim Developer KodeKiri"
                     className="w-full px-3 py-2 clean-input rounded-lg text-xs"
                   />
                 </div>

@@ -3,3 +3,12 @@ node_modules/
 *.db
 *.db-journal
 .DS_Store
+.serena/
+.agents/muse-brief-latest.md
+.agents/muse-results.json
+.agents/autopilot-state.json
+.agents/muse-research-queue.json
+.agents/muse-scrape-queue.json
+.agents/ai-settings-local.json
+.agents/leads-store.json
+.agents/autopilot-outbox.json

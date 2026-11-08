@@ -1,9 +1,17 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { openDb } from './db.js';
+
+function getLocalSettingsFilePath() {
+  const repoRoot = path.resolve(process.cwd(), '..');
+  return path.join(repoRoot, '.agents', 'ai-settings-local.json');
+}
 import {
   DEFAULT_AI_SETTINGS,
   ensureDeepSeekModelId,
   ensureFreeModelId,
+  resolveAgencyName,
 } from './openrouter.js';
 
 const SETTING_ROW_KEY = 'ai_config_v1';
@@ -79,14 +87,14 @@ export function formatPublicAiSettings(record = {}, updatedAt = null) {
   const openrouterKey = String(record.openrouterApiKey || '').trim();
 
   return {
-    primaryProvider: record.primaryProvider === 'openrouter' ? 'openrouter' : 'deepseek',
+    primaryProvider: ['muse', 'deepseek', 'openrouter'].includes(record.primaryProvider) ? record.primaryProvider : 'muse',
     autoFallback:
       typeof record.autoFallback === 'boolean'
         ? record.autoFallback
         : DEFAULT_AI_SETTINGS.autoFallback,
     deepseekModel: ensureDeepSeekModelId(record.deepseekModel),
     openrouterModel: ensureFreeModelId(record.openrouterModel),
-    agencyName: String(record.agencyName ?? DEFAULT_AI_SETTINGS.agencyName).trim() || DEFAULT_AI_SETTINGS.agencyName,
+    agencyName: resolveAgencyName(record.agencyName),
     serviceFocus: String(record.serviceFocus ?? DEFAULT_AI_SETTINGS.serviceFocus).trim() || DEFAULT_AI_SETTINGS.serviceFocus,
     pitchTone: ['casual', 'consultative', 'formal'].includes(record.pitchTone)
       ? record.pitchTone
@@ -100,15 +108,28 @@ export function formatPublicAiSettings(record = {}, updatedAt = null) {
 }
 
 export async function getDecryptedAiSettingsFromDb({ sqlImpl, secretOverride } = {}) {
-  const sql = sqlImpl || (await openDb());
-  await ensureAppSettingTable(sql);
+  let rows = [];
+  if (!sqlImpl && !process.env.DATABASE_URL) {
+    try {
+      const rawFile = await fs.readFile(getLocalSettingsFilePath(), 'utf8');
+      const parsedFile = JSON.parse(rawFile);
+      if (parsedFile && parsedFile.value) {
+        rows = [parsedFile];
+      }
+    } catch {
+      rows = [];
+    }
+  } else {
+    const sql = sqlImpl || (await openDb());
+    await ensureAppSettingTable(sql);
 
-  const rows = await sql`
-    SELECT value, "updatedAt"
-    FROM "AppSetting"
-    WHERE key = ${SETTING_ROW_KEY}
-    LIMIT 1
-  `;
+    rows = await sql`
+      SELECT value, "updatedAt"
+      FROM "AppSetting"
+      WHERE key = ${SETTING_ROW_KEY}
+      LIMIT 1
+    `;
+  }
 
   if (!rows || rows.length === 0) {
     return {
@@ -126,7 +147,7 @@ export async function getDecryptedAiSettingsFromDb({ sqlImpl, secretOverride } =
   const openrouterApiKey = decryptSecret(rawVal.openrouterApiKeyEnc, secretOverride);
 
   return {
-    primaryProvider: rawVal.primaryProvider === 'openrouter' ? 'openrouter' : 'deepseek',
+    primaryProvider: ['muse', 'deepseek', 'openrouter'].includes(rawVal.primaryProvider) ? rawVal.primaryProvider : 'muse',
     autoFallback:
       typeof rawVal.autoFallback === 'boolean'
         ? rawVal.autoFallback
@@ -135,7 +156,7 @@ export async function getDecryptedAiSettingsFromDb({ sqlImpl, secretOverride } =
     deepseekModel: ensureDeepSeekModelId(rawVal.deepseekModel),
     openrouterApiKey,
     openrouterModel: ensureFreeModelId(rawVal.openrouterModel),
-    agencyName: String(rawVal.agencyName ?? DEFAULT_AI_SETTINGS.agencyName),
+    agencyName: resolveAgencyName(rawVal.agencyName),
     serviceFocus: String(rawVal.serviceFocus ?? DEFAULT_AI_SETTINGS.serviceFocus),
     pitchTone: ['casual', 'consultative', 'formal'].includes(rawVal.pitchTone)
       ? rawVal.pitchTone
@@ -170,7 +191,7 @@ export async function saveAiSettingsToDb(input = {}, { sqlImpl, secretOverride }
     : incomingOpenrouter || existing.openrouterApiKey || '';
 
   const storedPayload = {
-    primaryProvider: input.primaryProvider === 'openrouter' ? 'openrouter' : 'deepseek',
+    primaryProvider: ['muse', 'deepseek', 'openrouter'].includes(input.primaryProvider) ? input.primaryProvider : 'muse',
     autoFallback:
       typeof input.autoFallback === 'boolean' ? input.autoFallback : existing.autoFallback,
     deepseekApiKeyEnc: encryptSecret(nextDeepseekKey, secretOverride),
@@ -190,16 +211,27 @@ export async function saveAiSettingsToDb(input = {}, { sqlImpl, secretOverride }
   };
 
   const payloadJson = JSON.stringify(storedPayload);
-  const rows = await sql`
-    INSERT INTO "AppSetting" (key, value, "updatedAt")
-    VALUES (${SETTING_ROW_KEY}, ${payloadJson}::jsonb, CURRENT_TIMESTAMP)
-    ON CONFLICT (key) DO UPDATE
-    SET value = EXCLUDED.value,
-        "updatedAt" = CURRENT_TIMESTAMP
-    RETURNING "updatedAt"
-  `;
+  let updatedAt = new Date().toISOString();
 
-  const updatedAt = rows?.[0]?.updatedAt || new Date().toISOString();
+  if (!sqlImpl && !process.env.DATABASE_URL) {
+    const filePath = getLocalSettingsFilePath();
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(
+      filePath,
+      JSON.stringify({ value: storedPayload, updatedAt }, null, 2),
+      'utf8'
+    );
+  } else {
+    const rows = await sql`
+      INSERT INTO "AppSetting" (key, value, "updatedAt")
+      VALUES (${SETTING_ROW_KEY}, ${payloadJson}::jsonb, CURRENT_TIMESTAMP)
+      ON CONFLICT (key) DO UPDATE
+      SET value = EXCLUDED.value,
+          "updatedAt" = CURRENT_TIMESTAMP
+      RETURNING "updatedAt"
+    `;
+    updatedAt = rows?.[0]?.updatedAt || updatedAt;
+  }
 
   return formatPublicAiSettings(
     {

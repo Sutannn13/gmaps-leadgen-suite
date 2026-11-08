@@ -531,14 +531,15 @@ async function callAiResearchApi(lead, config) {
       ? `SUBDOMAIN GRATISAN (${lead.website}, belum punya domain resmi)`
       : 'BELUM ADA WEBSITE RESMI';
 
-  const systemPrompt = `Kamu adalah Analis Prospek B2B dan Penulis Pesan WhatsApp untuk tim Web Developer.
+  const systemPrompt = `Kamu adalah Analis Prospek B2B dan Penulis Pesan WhatsApp untuk Tim Developer KodeKiri (https://kodekiri.tech).
 Target klien kami HANYA usaha aktif yang BELUM memiliki website berdomain resmi sendiri.
 
 ATURAN FAKTA DAN HUMANIZER (WAJIB):
 1. Analisis murni berdasarkan data Google Maps di bawah. DILARANG mengarang username Instagram, Shopee, atau email palsu yang tidak ada pada data.
-2. DILARANG KERAS memakai tanda double dash (--), em-dash, maupun strip pemisah kalimat ( - ). Gunakan koma atau titik biasa.
-3. DILARANG memakai emoji, bullet list, atau kalimat klise AI seperti "Di era digital saat ini" atau "Meningkatkan visibilitas secara signifikan".
-4. Panjang "pitchDraft" maksimal 45 sampai 60 kata (3 sampai 4 kalimat pendek natural seperti chat WA manusia asli), sebut detail nyata dari Maps mereka, tawarkan contoh tampilan singkat tanpa jualan harga, dan tutup tanpa paksaan.
+2. Jika nama usaha di Maps mengandung kata kunci SEO panjang atau garis vertikal (|), sapa menggunakan nama panggilan pendek usahanya saja dan masukkan detail layanan dari judul ke dalam isi kalimat.
+3. DILARANG KERAS memakai tanda double dash (--), em-dash, maupun strip pemisah kalimat ( - ). Gunakan koma atau titik biasa.
+4. DILARANG memakai emoji, bullet list, atau kalimat klise AI seperti "Di era digital saat ini" atau "Meningkatkan visibilitas secara signifikan".
+5. Panjang "pitchDraft" maksimal 45 sampai 60 kata (3 sampai 4 kalimat pendek natural seperti chat WA manusia asli atas nama Tim Developer KodeKiri), sebut detail nyata dari Maps mereka, tawarkan izin membuatkan gambaran tampilan web singkat khusus usaha mereka tanpa menyebut harga, dan tutup tanpa paksaan.
 
 Data Google Maps Usaha:
 Nama Usaha: "${lead.name}"
@@ -699,7 +700,7 @@ window.openAiDetail = function(index) {
   aiModalPitchAngle.textContent = res.pitchAngle || '-';
   aiModalPitchText.value =
     res.pitchDraft ||
-    `Halo Kak ${lead.name}, kami lihat profil usaha Kakak di Google Maps cukup ramai namun belum mencantumkan website katalog resmi. Boleh kami kirimkan contoh tampilannya Kak?`;
+    `Halo Kak, admin ${(lead.name || '').split('|')[0].trim()} ya? Salam kenal dari Tim Developer KodeKiri. Kami lihat profil usaha Kakak di Google Maps sudah punya ulasan bagus namun belum mencantumkan website resmi. Boleh kami coba buatkan gambaran tampilan web singkat khusus untuk usaha Kakak? Kalau belum butuh saat ini santai saja, abaikan tidak apa-apa.`;
 
   const waDigits = normalizePhoneForWa(lead.whatsapp || lead.phone);
   if (waDigits) {

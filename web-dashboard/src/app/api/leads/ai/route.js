@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { openDb } from '@/lib/db';
+import { updateLeadAiResearchInRepo } from '@/lib/leadsRepository';
 
 const VALID_QUALIFICATIONS = new Set(['HOT LEAD', 'WARM LEAD', 'COLD LEAD']);
 
@@ -32,7 +32,13 @@ function sanitizeAiPayload(raw) {
     digitalPresenceSummary: trimText(raw.digitalPresenceSummary, 1000),
     pitchAngle: trimText(raw.pitchAngle, 600),
     pitchDraft: trimText(raw.pitchDraft, 2000),
+    qualificationReplyDraft: trimText(raw.qualificationReplyDraft, 2000),
     followUpDraft: trimText(raw.followUpDraft, 1500),
+    museClientNotes: trimText(raw.museClientNotes, 1500),
+    museReferenceUrl: trimText(raw.museReferenceUrl, 600),
+    museShareUrl: trimText(raw.museShareUrl, 800),
+    pipelineStage: trimText(raw.pipelineStage, 64),
+    botPaused: Boolean(raw.botPaused),
     modelUsed: trimText(raw.modelUsed, 160),
     analyzedAt: trimText(raw.analyzedAt, 64) || new Date().toISOString(),
   };
@@ -58,25 +64,8 @@ export async function POST(request) {
       );
     }
 
-    const id = String(rawId).trim();
-    const jsonPayload = JSON.stringify(sanitized);
-    const sql = await openDb();
-
-    if (/^\d+$/.test(id)) {
-      await sql`
-        UPDATE "Lead"
-        SET "aiResearch" = ${jsonPayload}::jsonb
-        WHERE id = ${id}::bigint
-      `;
-    } else {
-      await sql`
-        UPDATE "Lead"
-        SET "aiResearch" = ${jsonPayload}::jsonb
-        WHERE id::text = ${id}
-      `;
-    }
-
-    return NextResponse.json({ success: true, aiResearch: sanitized });
+    const saved = await updateLeadAiResearchInRepo(rawId, sanitized);
+    return NextResponse.json({ success: true, aiResearch: saved });
   } catch (err) {
     console.error('Save AI research failed:', { message: err?.message });
     return NextResponse.json(

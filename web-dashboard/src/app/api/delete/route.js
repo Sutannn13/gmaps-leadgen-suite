@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { openDb } from '@/lib/db';
+import { deleteLeadsFromRepo } from '@/lib/leadsRepository';
 
 export async function POST(request) {
   try {
@@ -13,16 +13,7 @@ export async function POST(request) {
       );
     }
 
-    const id = String(rawId).trim();
-    const sql = await openDb();
-
-    // Hapus data (support format bigint maupun text)
-    if (/^\d+$/.test(id)) {
-      await sql`DELETE FROM "Lead" WHERE id = ${id}::bigint`;
-    } else {
-      await sql`DELETE FROM "Lead" WHERE id::text = ${id}`;
-    }
-
+    await deleteLeadsFromRepo([String(rawId).trim()]);
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('Delete lead failed:', { message: err?.message });

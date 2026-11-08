@@ -1,13 +1,9 @@
 import { NextResponse } from 'next/server';
-import { openDb } from '@/lib/db';
+import { deleteLeadsFromRepo } from '@/lib/leadsRepository';
 
 export async function POST() {
   try {
-    const sql = await openDb();
-
-    // Hapus seluruh baris data dari tabel Lead
-    await sql`DELETE FROM "Lead"`;
-
+    await deleteLeadsFromRepo(null);
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('Delete all leads failed:', { message: err?.message });

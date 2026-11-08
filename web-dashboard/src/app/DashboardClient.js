@@ -6,6 +6,7 @@ import Link from 'next/link';
 import {
   DEFAULT_OPENROUTER_MODEL,
   analyzeLeadWithAi,
+  buildDefaultWaPitch,
   isAnyAiConfigured,
   resolveActiveProvider,
   loadAiSettings,
@@ -18,7 +19,12 @@ import {
   evaluateLeadQualification,
   groupDeleteRecommendations,
 } from '@/lib/leadQualification';
+import {
+  PIPELINE_STAGES,
+  deriveLeadPipelineStage,
+} from '@/lib/automationEngine';
 import SectionErrorBoundary from '@/components/SectionErrorBoundary';
+import AutomationCommandBar from '@/components/AutomationCommandBar';
 import AiSettingsModal from '@/components/AiSettingsModal';
 import AiLeadModal from '@/components/AiLeadModal';
 import CleanupRecommendationsModal from '@/components/CleanupRecommendationsModal';
@@ -113,6 +119,7 @@ export default function DashboardClient({
   const [aiFilter, setAiFilter] = useState('ALL'); // 'ALL' | 'HOT' | 'WARM' | 'COLD' | 'UNRESEARCHED'
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [chatFilter, setChatFilter] = useState('ALL'); // 'ALL' | 'UNCONTACTED' | 'CONTACTED'
+  const [pipelineFilter, setPipelineFilter] = useState('ALL');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [pageState, setPageState] = useState({ page: 1, filterKey: '' });
 
@@ -179,9 +186,11 @@ export default function DashboardClient({
       if (viabilityFilter === 'ELIGIBLE' && evalInfo.recommendDelete) return false;
       if (viabilityFilter === 'RECOMMEND_DELETE' && !evalInfo.recommendDelete) return false;
 
-      const hasOwnedWeb = evalInfo.websiteType === 'OWNED_DOMAIN';
+      const hasOwnedWeb = evalInfo.websiteType === 'OWNED_DOMAIN' || lead.websiteStatus === 'has_website';
       if (websiteFilter === 'NO_WEB' && hasOwnedWeb) return false;
       if (websiteFilter === 'HAS_WEB' && !hasOwnedWeb) return false;
+      if (websiteFilter === 'SOCIAL_ONLY' && lead.websiteStatus !== 'social_only' && !lead.socialMedia && !lead.onlineShop) return false;
+      if (websiteFilter === 'DEAD_WEB' && lead.websiteStatus !== 'website_dead' && !lead.deadWebsiteUrl) return false;
 
       const rVal = parseFloat((lead.rating || '').toString().replace(',', '.'));
       if (ratingFilter === '4.5' && (Number.isNaN(rVal) || rVal < 4.5)) return false;
@@ -202,6 +211,11 @@ export default function DashboardClient({
 
       if (chatFilter === 'UNCONTACTED' && lead.chatStatus === 'SUDAH') return false;
       if (chatFilter === 'CONTACTED' && lead.chatStatus !== 'SUDAH') return false;
+
+      if (pipelineFilter !== 'ALL') {
+        const leadStage = deriveLeadPipelineStage(lead);
+        if (leadStage !== pipelineFilter) return false;
+      }
 
       const leadCat = lead.categoryName || 'Tanpa Kategori';
       if (categoryFilter !== 'ALL' && leadCat !== categoryFilter) return false;
@@ -241,9 +255,11 @@ export default function DashboardClient({
     ratingFilter,
     channelFilter,
     aiFilter,
-    categoryFilter,, chatFilter]);
+    categoryFilter,
+    chatFilter,
+    pipelineFilter]);
 
-  const filterKey = `${viabilityFilter}|${searchQuery}|${websiteFilter}|${ratingFilter}|${channelFilter}|${aiFilter}|${categoryFilter}|${chatFilter}`;
+  const filterKey = `${viabilityFilter}|${searchQuery}|${websiteFilter}|${ratingFilter}|${channelFilter}|${aiFilter}|${categoryFilter}|${chatFilter}|${pipelineFilter}`;
   const totalPages = Math.max(1, Math.ceil(filteredLeads.length / PAGE_SIZE));
   const activePage = pageState.filterKey === filterKey ? pageState.page : 1;
   const safePage = Math.min(activePage, totalPages);
@@ -267,6 +283,7 @@ export default function DashboardClient({
     aiFilter !== 'ALL',
     categoryFilter !== 'ALL',
     chatFilter !== 'ALL',
+    pipelineFilter !== 'ALL',
   ].filter(Boolean).length;
 
   const hasActiveFilters = searchQuery.trim() !== '' || activeFilterCount > 0;
@@ -280,6 +297,118 @@ export default function DashboardClient({
     setAiFilter('ALL');
     setCategoryFilter('ALL');
     setChatFilter('ALL');
+    setPipelineFilter('ALL');
+  };
+
+  const stageCounts = useMemo(() => {
+    const counts = {
+      QUEUED: 0,
+      CHAT1_SENT: 0,
+      QUALIFYING: 0,
+      MOCKUP_SENT: 0,
+      HANDOVER_TO_HUMAN: 0,
+      DECLINED: 0,
+    };
+    for (const l of leads) {
+      const st = deriveLeadPipelineStage(l);
+      counts[st] = (counts[st] || 0) + 1;
+    }
+    return counts;
+  }, [leads]);
+
+  const handleRunDryRunSimulation = async (refreshCommandBar) => {
+    const isSimulatable = (l) => {
+      if (!l) return false;
+      const ev = evaluationById.get(String(l.id)) || evaluateLeadQualification(l);
+      if (ev.recommendDelete || !ev.hasMobileWa) return false;
+      if (l.aiResearch?.botPaused) return false;
+      const st = deriveLeadPipelineStage(l);
+      return st !== 'HANDOVER_TO_HUMAN' && st !== 'DECLINED';
+    };
+
+    const candidate =
+      leads.find((l) => isSimulatable(l) && deriveLeadPipelineStage(l) === 'QUEUED') ||
+      leads.find((l) => isSimulatable(l) && deriveLeadPipelineStage(l) === 'CHAT1_SENT') ||
+      leads.find((l) => isSimulatable(l) && deriveLeadPipelineStage(l) === 'QUALIFYING') ||
+      leads.find((l) => isSimulatable(l) && deriveLeadPipelineStage(l) === 'MOCKUP_SENT') ||
+      null;
+
+    if (!candidate) {
+      setNotice({
+        type: 'info',
+        text: 'Seluruh prospek layak saat ini sudah berada di tahap Siap Closing (Diambil Alih Tim) atau Bot Pause. Tidak ada pesan otomatis tambahan yang dikirim.',
+      });
+      return;
+    }
+
+    const currentStage = deriveLeadPipelineStage(candidate);
+    let nextStage = 'CHAT1_SENT';
+    let simulatedReply = '';
+    let summaryText = '';
+
+    if (currentStage === 'QUEUED') {
+      nextStage = 'CHAT1_SENT';
+      summaryText = `[SIMULASI UAT - Chat 1] Mengirim Chat 1 Pembuka ke "${candidate.name.split('|')[0].trim()}" (Status: Chat 1 Terkirim).`;
+    } else if (currentStage === 'CHAT1_SENT') {
+      nextStage = 'QUALIFYING';
+      simulatedReply = 'Boleh kak liat contoh tampilannya';
+      summaryText = `[SIMULASI UAT - Chat 2] "${candidate.name.split('|')[0].trim()}" membalas "Boleh" -> Bot membalas Chat 2 (https://kodekiri.tech + tanya layanan/logo).`;
+    } else if (currentStage === 'QUALIFYING') {
+      nextStage = 'MOCKUP_SENT';
+      simulatedReply = 'Kami fokus sablon DTF & plastisol lusinan kak';
+      summaryText = `[SIMULASI UAT - Mockup] "${candidate.name.split('|')[0].trim()}" mengirim detail layanan -> Mockup 4-Section dibuat & dikirim ke WA klien.`;
+    } else {
+      nextStage = 'HANDOVER_TO_HUMAN';
+      simulatedReply = 'Tampilannya cocok kak, kalau lanjut domain resmi berapa harganya?';
+      summaryText = `[SIMULASI UAT - HANDOVER TIM] "${candidate.name.split('|')[0].trim()}" menanyakan harga resmi! Bot di-pause otomatis agar Tim Developer KodeKiri mengambil alih closing.`;
+    }
+
+    const updatedResearch = {
+      ...(candidate.aiResearch || {}),
+      pipelineStage: nextStage,
+      botPaused: nextStage === 'HANDOVER_TO_HUMAN',
+      lastClientReply: simulatedReply || candidate.aiResearch?.lastClientReply || '',
+    };
+
+    setLeads((prev) =>
+      prev.map((item) =>
+        String(item.id) === String(candidate.id)
+          ? {
+              ...item,
+              chatStatus: 'SUDAH',
+              contactedAt: item.contactedAt || new Date().toISOString(),
+              aiResearch: updatedResearch,
+            }
+          : item
+      )
+    );
+
+    try {
+      await persistAiToDb(candidate.id, updatedResearch);
+    } catch {
+      // Ignore offline DB error in local UAT
+    }
+
+    try {
+      await fetch('/api/automation/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'LOG_EVENT',
+          type: nextStage === 'HANDOVER_TO_HUMAN' ? 'warning' : 'success',
+          incrementSent: false,
+          message: summaryText,
+        }),
+      });
+      if (refreshCommandBar) refreshCommandBar();
+    } catch {
+      // Ignore log error
+    }
+
+    setNotice({
+      type: nextStage === 'HANDOVER_TO_HUMAN' ? 'warning' : 'success',
+      text: summaryText,
+    });
   };
 
   const categoryCounts = useMemo(() => {
@@ -322,14 +451,18 @@ export default function DashboardClient({
   );
 
   // Bulk AI queue automatically skips leads flagged for deletion to save tokens
-  const eligibleUnresearchedInFilter = useMemo(
+  const eligibleInFilter = useMemo(
     () =>
       filteredLeads.filter((l) => {
-        if (l.aiResearch) return false;
         const ev = evaluationById.get(String(l.id));
         return !ev?.recommendDelete;
       }),
     [filteredLeads, evaluationById]
+  );
+
+  const eligibleUnresearchedInFilter = useMemo(
+    () => eligibleInFilter.filter((l) => !l.aiResearch),
+    [eligibleInFilter]
   );
 
     const toggleChatStatus = useCallback(async (lead, forcedStatus = null) => {
@@ -452,7 +585,7 @@ export default function DashboardClient({
         openrouterApiKey: '',
       });
       const active = resolveActiveProvider(nextSettings);
-      const providerLabel = active === 'deepseek' ? 'DeepSeek' : 'OpenRouter Free';
+      const providerLabel = active === 'muse' ? 'Muse.ai (VM + Scrapling)' : active === 'deepseek' ? 'DeepSeek' : 'OpenRouter Free';
       setShowAiSettingsModal(false);
       setNotice({
         type: 'success',
@@ -465,7 +598,7 @@ export default function DashboardClient({
     const savedLocal = saveAiSettings(nextSettings);
     const merged = mergeCloudAndLocalAiSettings(cloudAiSettings, savedLocal);
     const active = resolveActiveProvider(merged);
-    const providerLabel = active === 'deepseek' ? 'DeepSeek' : 'OpenRouter Free';
+    const providerLabel = active === 'muse' ? 'Muse.ai (VM + Scrapling)' : active === 'deepseek' ? 'DeepSeek' : 'OpenRouter Free';
     setShowAiSettingsModal(false);
     setNotice({
       type: 'warning',
@@ -567,23 +700,23 @@ export default function DashboardClient({
     }
 
     const activeProvider = resolveActiveProvider(aiSettings);
-    const providerLabel = activeProvider === 'deepseek' ? 'DeepSeek' : 'OpenRouter Free';
-    const stepDelayMs = activeProvider === 'deepseek' ? 900 : 3200;
+    const providerLabel =
+      activeProvider === 'muse'
+        ? 'Muse.ai (VM + Scrapling)'
+        : activeProvider === 'deepseek'
+          ? 'DeepSeek'
+          : 'OpenRouter Free';
+    const stepDelayMs = activeProvider === 'muse' ? 400 : activeProvider === 'deepseek' ? 900 : 3200;
 
-    const queue = eligibleUnresearchedInFilter;
+    const queue =
+      eligibleUnresearchedInFilter.length > 0
+        ? eligibleUnresearchedInFilter
+        : eligibleInFilter;
+
     if (queue.length === 0) {
-      const skippedFlagged = filteredLeads.filter(
-        (l) => !l.aiResearch && evaluationById.get(String(l.id))?.recommendDelete
-      ).length;
-
       setNotice({
         type: 'info',
-        text:
-          skippedFlagged > 0
-            ? `Seluruh prospek layak sudah dianalisis. Terdapat ${skippedFlagged} baris berstatus Rekomendasi Hapus yang dilewati otomatis agar hemat kuota AI.`
-            : 'Seluruh prospek pada filter aktif saat ini sudah memiliki hasil analisis AI.',
-        actionLabel: skippedFlagged > 0 ? 'Tinjau Rekomendasi Hapus' : undefined,
-        onAction: skippedFlagged > 0 ? () => setShowCleanupModal(true) : undefined,
+        text: 'Tidak ada prospek layak pada filter saat ini untuk dianalisis AI.',
       });
       return;
     }
@@ -596,6 +729,7 @@ export default function DashboardClient({
         : '';
 
     if (
+      activeProvider !== 'muse' &&
       !window.confirm(
         `Jalankan analisis AI (${providerLabel}) untuk ${queue.length} prospek layak pada filter saat ini${skipNote}?`
       )
@@ -923,9 +1057,111 @@ export default function DashboardClient({
     });
   };
 
+  const [scrapingMuse, setScrapingMuse] = useState(false);
+
+  const handleScrapeLocationWithMuse = async (targetQuery, refreshCommandBar) => {
+    if (scrapingMuse) return;
+    setScrapingMuse(true);
+    setNotice(null);
+    try {
+      const existingKeys = [];
+      for (const l of leads) {
+        existingKeys.push(
+          `${String(l.name || '').toLowerCase().replace(/\s+/g, ' ').trim()}|${String(l.address || '').toLowerCase().replace(/\s+/g, ' ').trim()}`
+        );
+        const ph = String(l.whatsapp || l.phone || '').replace(/[^\d]/g, '');
+        if (ph) existingKeys.push(ph);
+      }
+
+      const res = await fetch('/api/ai/muse-scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetQuery,
+          existingKeys,
+          aiSettings: {
+            primaryProvider: aiSettings.primaryProvider,
+            deepseekApiKey: aiSettings.deepseekApiKey,
+            deepseekModel: aiSettings.deepseekModel,
+            openrouterApiKey: aiSettings.openrouterApiKey,
+            openrouterModel: aiSettings.openrouterModel,
+          },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Gagal menjalankan scraping lokasi via Muse.ai.');
+      }
+
+      if (Array.isArray(data.allLeads) && data.allLeads.length > 0) {
+        setLeads(data.allLeads);
+        setNotice({
+          type: 'success',
+          text: `[Scrapling Muse.ai] Data daerah "${data.targetQuery}" berhasil disinkronkan: total ${data.allLeads.length} usaha lokal terpetakan per Jenis Usaha & Status Website!`,
+        });
+        return;
+      }
+
+      const incomingLeads = Array.isArray(data.leads) ? data.leads : [];
+      if (incomingLeads.length === 0) {
+        setNotice({
+          type: 'info',
+          text: `Seluruh kandidat usaha tanpa website untuk "${data.targetQuery}" sudah ada di tabel (0 duplikat ditambahkan). Ubah kata kunci/lokasi untuk mencari area baru.`,
+        });
+        return;
+      }
+
+      setLeads((prev) => {
+        const prevKeySet = new Set(
+          prev.map(
+            (p) =>
+              `${String(p.name || '').toLowerCase().replace(/\s+/g, ' ').trim()}|${String(p.address || '').toLowerCase().replace(/\s+/g, ' ').trim()}`
+          )
+        );
+        const uniqueNew = incomingLeads.filter(
+          (item) =>
+            !prevKeySet.has(
+              `${String(item.name || '').toLowerCase().replace(/\s+/g, ' ').trim()}|${String(item.address || '').toLowerCase().replace(/\s+/g, ' ').trim()}`
+            )
+        );
+        return [...uniqueNew, ...prev];
+      });
+
+      const logMsg = `[Scrapling Muse.ai] Berhasil menemukan ${incomingLeads.length} lokasi usaha tanpa website resmi untuk "${data.targetQuery}". Siap dijalankan Riset AI Masal!`;
+      await fetch('/api/automation/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'LOG_EVENT',
+          type: 'success',
+          message: logMsg,
+        }),
+      }).catch(() => {});
+
+      if (refreshCommandBar) refreshCommandBar();
+
+      setNotice({
+        type: 'success',
+        text: logMsg,
+      });
+    } catch (err) {
+      setNotice({
+        type: 'error',
+        text: err?.message || 'Gagal scraping lokasi via Muse.ai.',
+      });
+    } finally {
+      setScrapingMuse(false);
+    }
+  };
+
   const hasApiKey = isAnyAiConfigured(aiSettings);
+  const resolvedProv = resolveActiveProvider(aiSettings);
   const activeProviderName =
-    resolveActiveProvider(aiSettings) === 'deepseek' ? 'DeepSeek' : 'OpenRouter';
+    resolvedProv === 'muse'
+      ? 'Muse.ai (VM)'
+      : resolvedProv === 'deepseek'
+        ? 'DeepSeek'
+        : 'OpenRouter';
   const isCloudSynced = Boolean(
     aiSettings.cloudDeepseekReady || aiSettings.cloudOpenrouterReady
   );
@@ -947,18 +1183,19 @@ export default function DashboardClient({
           <button
             type="button"
             onClick={handleBulkAnalyze}
-            disabled={bulkState.running || eligibleUnresearchedInFilter.length === 0}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-zinc-100 hover:bg-white text-zinc-950 transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Analisis otomatis seluruh prospek layak pada filter aktif yang belum diriset"
+            disabled={bulkState.running || eligibleInFilter.length === 0}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-zinc-100 hover:bg-white text-zinc-950 transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            title="Analisis otomatis seluruh prospek layak pada filter/kategori aktif"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
             <span>
-              Riset AI Masal
               {eligibleUnresearchedInFilter.length > 0
-                ? ` (${eligibleUnresearchedInFilter.length})`
-                : ''}
+                ? `Riset AI Masal (${eligibleUnresearchedInFilter.length})`
+                : eligibleInFilter.length > 0
+                  ? `Riset Ulang AI Masal (${eligibleInFilter.length})`
+                  : 'Riset AI Masal'}
             </span>
           </button>
 
@@ -1021,6 +1258,21 @@ export default function DashboardClient({
           )}
         </div>
       </div>
+
+      {/* 1B. COMMAND CENTER: OTOMATISASIKAN CALON CLIENT (07:00 - 13:00 WIB) */}
+      <AutomationCommandBar
+        eligibleCount={chatUncontactedCount}
+        onRunDryRunSimulation={handleRunDryRunSimulation}
+        onScrapeLocationWithMuse={handleScrapeLocationWithMuse}
+        onResetAutopilotStages={() => {
+          resetAllFilters();
+          setNotice({
+            type: 'info',
+            text: 'Status otomasi, kuota harian (0/20), log, dan filter telah di-reset.',
+          });
+        }}
+        isScrapingMuse={scrapingMuse}
+      />
 
       {/* 2. ACTION FEEDBACK & BULK PROGRESS BANNERS */}
       {notice && (
@@ -1178,8 +1430,113 @@ export default function DashboardClient({
         </button>
       </div>
 
-      {/* 4. FILTER TOOLBAR (COLLAPSIBLE ON MOBILE) */}
+            {/* 4. PIPELINE FUNNEL 5 TAHAP & FILTER RINGKAS */}
       <div className="p-4 rounded-xl clean-card space-y-3.5">
+        <div className="flex flex-wrap items-center gap-1.5 pb-3 border-b border-zinc-800/70">
+          <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mr-1.5">
+            Tahap Funnel:
+          </span>
+          {[
+            { id: 'ALL', label: `Semua (${totalLeads})` },
+            { id: 'QUEUED', label: `1. Antrean Baru (${stageCounts.QUEUED || 0})` },
+            { id: 'CHAT1_SENT', label: `2. Chat 1 Terkirim (${stageCounts.CHAT1_SENT || 0})` },
+            { id: 'QUALIFYING', label: `3. Tektokan Kualifikasi (${stageCounts.QUALIFYING || 0})` },
+            { id: 'MOCKUP_SENT', label: `4. Mockup Terkirim (${stageCounts.MOCKUP_SENT || 0})` },
+            {
+              id: 'HANDOVER_TO_HUMAN',
+              label: `5. Siap Closing / Tim (${stageCounts.HANDOVER_TO_HUMAN || 0})`,
+            },
+          ].map((stageOpt) => (
+            <button
+              key={stageOpt.id}
+              type="button"
+              onClick={() =>
+                setPipelineFilter(pipelineFilter === stageOpt.id ? 'ALL' : stageOpt.id)
+              }
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                pipelineFilter === stageOpt.id
+                  ? 'bg-zinc-100 text-zinc-950 font-semibold shadow-sm'
+                  : 'bg-zinc-900/90 text-zinc-300 border border-zinc-800 hover:border-zinc-700 hover:text-white'
+              }`}
+            >
+              {stageOpt.label}
+            </button>
+          ))}
+        </div>
+
+        {availableCategories.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 pb-3 border-b border-zinc-800/70">
+            <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mr-1.5">
+              Jenis Usaha:
+            </span>
+            <button
+              type="button"
+              onClick={() => setCategoryFilter('ALL')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                categoryFilter === 'ALL'
+                  ? 'bg-emerald-500 text-zinc-950 font-semibold'
+                  : 'text-zinc-300 hover:text-white bg-zinc-900/90 border border-zinc-800'
+              }`}
+            >
+              Semua Usaha ({totalLeads})
+            </button>
+            {availableCategories.map((cat) => (
+              <button
+                type="button"
+                key={cat}
+                onClick={() => setCategoryFilter(categoryFilter === cat ? 'ALL' : cat)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                  categoryFilter === cat
+                    ? 'bg-emerald-500 text-zinc-950 font-semibold'
+                    : 'text-zinc-300 hover:text-white bg-zinc-900/90 border border-zinc-800'
+                }`}
+              >
+                <span>{cat}</span>
+                <span className="text-[10px] opacity-80 font-mono">
+                  ({categoryCounts[cat] || 0})
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-1.5 pb-3 border-b border-zinc-800/70">
+          <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mr-1.5">
+            Pemisah Status Website:
+          </span>
+          {[
+            { id: 'ALL', label: `Semua (${totalLeads})` },
+            { id: 'NO_WEB', label: `Belum Punya Website Resmi (${noWebsiteCount})` },
+            {
+              id: 'SOCIAL_ONLY',
+              label: `Hanya Sosmed / Olshop (${leads.filter((l) => l.websiteStatus === 'social_only' || (!l.website && (l.socialMedia || l.onlineShop))).length})`,
+            },
+            {
+              id: 'DEAD_WEB',
+              label: `Domain Lama Mati / 404 (${leads.filter((l) => l.websiteStatus === 'website_dead' || l.deadWebsiteUrl).length})`,
+            },
+            {
+              id: 'HAS_WEB',
+              label: `Sudah Punya Website Resmi (${totalLeads - noWebsiteCount})`,
+            },
+          ].map((wOpt) => (
+            <button
+              key={wOpt.id}
+              type="button"
+              onClick={() =>
+                setWebsiteFilter(websiteFilter === wOpt.id ? 'ALL' : wOpt.id)
+              }
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                websiteFilter === wOpt.id
+                  ? 'bg-sky-400 text-zinc-950 font-semibold'
+                  : 'text-zinc-300 hover:text-white bg-zinc-900/90 border border-zinc-800'
+              }`}
+            >
+              {wOpt.label}
+            </button>
+          ))}
+        </div>
+
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
@@ -1209,9 +1566,9 @@ export default function DashboardClient({
           <button
             type="button"
             onClick={() => setMobileFiltersOpen((prev) => !prev)}
-            className="md:hidden inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-zinc-900 text-zinc-200 border border-zinc-800 shrink-0"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 shrink-0 transition-colors"
           >
-            <span>Filter</span>
+            <span>{mobileFiltersOpen ? 'Tutup Filter' : 'Filter Lanjutan'}</span>
             {activeFilterCount > 0 && (
               <span className="px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-950 text-[10px] font-bold">
                 {activeFilterCount}
@@ -1219,21 +1576,25 @@ export default function DashboardClient({
             )}
           </button>
 
-          {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={resetAllFilters}
-              className="px-3 py-2 rounded-xl text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition-colors whitespace-nowrap shrink-0"
-            >
-              Reset
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              resetAllFilters();
+              setNotice({
+                type: 'info',
+                text: 'Seluruh filter pencarian dan tampilan tabel telah di-reset.',
+              });
+            }}
+            className="px-3 py-2 rounded-xl text-xs font-medium text-zinc-300 hover:text-white bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition-colors whitespace-nowrap shrink-0"
+          >
+            Reset Filter
+          </button>
         </div>
 
         <div
           className={`${
             mobileFiltersOpen ? 'block' : 'hidden'
-          } md:block space-y-3.5 pt-3 border-t border-zinc-800/70 text-xs`}
+          } space-y-3.5 pt-3 border-t border-zinc-800/70 text-xs`}
         >
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
             {/* Status Chat Filter */}
@@ -1477,7 +1838,7 @@ export default function DashboardClient({
                 const score = lead.aiResearch?.leadScore;
                 const qualStyle = getQualificationStyles(qual);
 
-                const defaultPitch = `Halo Kak ${lead.name}, salam kenal dari ${aiSettings.agencyName || 'Tim Web Developer'}. Kami lihat profil usaha Kakak di Google Maps sudah punya ulasan bagus namun belum mencantumkan website katalog resmi. Boleh kami kirimkan contoh tampilan singkatnya Kak? Kalau belum butuh saat ini santai saja, abaikan tidak apa-apa.`;
+                const defaultPitch = buildDefaultWaPitch(lead, aiSettings);
                 const waText = lead.aiResearch?.pitchDraft || defaultPitch;
                 const waUrl = waDigits
                   ? `https://wa.me/${waDigits}?text=${encodeURIComponent(waText)}`
@@ -1714,7 +2075,7 @@ export default function DashboardClient({
                       const score = lead.aiResearch?.leadScore;
                       const qualStyle = getQualificationStyles(qual);
 
-                      const defaultPitch = `Halo Kak ${lead.name}, salam kenal dari ${aiSettings.agencyName || 'Tim Web Developer'}. Kami lihat profil usaha Kakak di Google Maps sudah punya ulasan bagus namun belum mencantumkan website katalog resmi. Boleh kami kirimkan contoh tampilan singkatnya Kak? Kalau belum butuh saat ini santai saja, abaikan tidak apa-apa.`;
+                      const defaultPitch = buildDefaultWaPitch(lead, aiSettings);
                       const waText = lead.aiResearch?.pitchDraft || defaultPitch;
                       const waUrl = waDigits
                         ? `https://wa.me/${waDigits}?text=${encodeURIComponent(waText)}`
@@ -1816,16 +2177,27 @@ export default function DashboardClient({
                                 className={`underline underline-offset-2 text-xs ${
                                   evalInfo.websiteType === 'FREE_BUILDER'
                                     ? 'text-amber-300 hover:text-amber-200'
-                                    : 'text-zinc-300 hover:text-white'
+                                    : 'text-emerald-300 hover:text-emerald-200 font-medium'
                                 }`}
                               >
                                 {evalInfo.websiteType === 'FREE_BUILDER'
                                   ? 'Web Gratisan'
-                                  : 'Domain Mandiri'}
+                                  : 'Sudah Ada Web'}
                               </a>
+                            ) : lead.websiteStatus === 'website_dead' || lead.deadWebsiteUrl ? (
+                              <span
+                                title={`Domain lama tidak aktif / 404: ${lead.deadWebsiteUrl || ''}`}
+                                className="px-2 py-0.5 rounded-md text-[11px] bg-amber-950/60 text-amber-200 border border-amber-800/80 font-medium"
+                              >
+                                Domain Mati (404)
+                              </span>
+                            ) : lead.websiteStatus === 'social_only' || lead.socialMedia || lead.onlineShop ? (
+                              <span className="px-2 py-0.5 rounded-md text-[11px] bg-sky-950/50 text-sky-200 border border-sky-800/70">
+                                Hanya Sosmed/Olshop
+                              </span>
                             ) : (
                               <span className="px-2 py-0.5 rounded-md text-[11px] bg-zinc-900 text-zinc-400 border border-zinc-800">
-                                Belum Ada
+                                Belum Ada Web
                               </span>
                             )}
                           </td>
@@ -1889,6 +2261,21 @@ export default function DashboardClient({
                           </td>
 
                           <td className="py-3 px-3 whitespace-nowrap">
+                            {(() => {
+                              const stKey = deriveLeadPipelineStage(lead);
+                              const stMeta = PIPELINE_STAGES[stKey] || PIPELINE_STAGES.QUEUED;
+                              return (
+                                <div className="mb-1">
+                                  <span
+                                    title={stMeta.description}
+                                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-semibold border ${stMeta.badgeClass}`}
+                                  >
+                                    <span className={`w-1.5 h-1.5 rounded-full ${stMeta.dotClass}`} />
+                                    <span>{stMeta.label}</span>
+                                  </span>
+                                </div>
+                              );
+                            })()}
                             {lead.chatStatus === 'SUDAH' ? (
                               <button
                                 type="button"
@@ -2037,6 +2424,7 @@ export default function DashboardClient({
           <AiLeadModal
             key={`lead-${selectedAiLead.id}-${selectedAiLead.aiResearch?.analyzedAt || 'init'}`}
             lead={selectedAiLead}
+            aiSettings={aiSettings}
             isAnalyzing={analyzingIds.includes(String(selectedAiLead.id))}
             onClose={() => setSelectedLeadId(null)}
             onReanalyze={handleAnalyzeSingle}
