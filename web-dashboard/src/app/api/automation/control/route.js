@@ -104,6 +104,7 @@ export async function POST(request) {
         enabled: nextEnabled,
         targetQuery: String(body?.targetQuery ?? current.targetQuery).trim() || current.targetQuery,
         maxDailyQuota: Number(body?.maxDailyQuota || current.maxDailyQuota) || DEFAULT_MAX_DAILY_QUOTA,
+        fonnteToken: String(body?.fonnteToken ?? current.fonnteToken ?? '').trim(),
         currentAction: statusMsg,
         lastTriggeredAt: nextEnabled ? nowIso : current.lastTriggeredAt,
         updatedAt: nowIso,
@@ -124,10 +125,16 @@ export async function POST(request) {
         Math.min(100, Number(body?.maxDailyQuota || current.maxDailyQuota) || DEFAULT_MAX_DAILY_QUOTA)
       );
 
+      const nextFonnteToken =
+        body?.fonnteToken !== undefined
+          ? String(body.fonnteToken || '').trim()
+          : String(current.fonnteToken || '').trim();
+
       const nextState = await saveAutopilotStateToStore({
         ...current,
         targetQuery: nextTarget,
         maxDailyQuota: nextQuota,
+        fonnteToken: nextFonnteToken,
         updatedAt: nowIso,
         activityLogs: appendLog(
           `Konfigurasi diperbarui: Target "${nextTarget}" (Kuota maks ${nextQuota} prospek/hari, jam 07:00-13:00 WIB).`,

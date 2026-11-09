@@ -56,6 +56,7 @@ function formatScrapedAt(rawDate) {
     const d = new Date(rawDate);
     if (isNaN(d.getTime())) return String(rawDate);
     return new Intl.DateTimeFormat('id-ID', {
+      timeZone: 'Asia/Jakarta',
       day: '2-digit',
       month: 'short',
       year: 'numeric',
@@ -74,6 +75,7 @@ function formatTimeOnly(rawDate) {
     const d = new Date(rawDate);
     if (isNaN(d.getTime())) return '';
     return new Intl.DateTimeFormat('id-ID', {
+      timeZone: 'Asia/Jakarta',
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,

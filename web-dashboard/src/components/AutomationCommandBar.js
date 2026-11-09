@@ -32,6 +32,7 @@ export default function AutomationCommandBar({
   const [showLogs, setShowLogs] = useState(false);
   const [targetInput, setTargetInput] = useState(state.targetQuery);
   const [quotaInput, setQuotaInput] = useState(state.maxDailyQuota);
+  const [fonnteTokenInput, setFonnteTokenInput] = useState('');
   const [savingConfig, setSavingConfig] = useState(false);
 
   const fetchStatus = useCallback(async () => {
@@ -42,6 +43,9 @@ export default function AutomationCommandBar({
         setState(data.state);
         setTargetInput((prev) => (prev === state.targetQuery ? data.state.targetQuery : prev));
         setQuotaInput(data.state.maxDailyQuota || 20);
+        if (data.state.fonnteToken) {
+          setFonnteTokenInput((prev) => prev || data.state.fonnteToken);
+        }
       }
       if (data?.windowCheck) {
         setWindowCheck(data.windowCheck);
@@ -138,6 +142,7 @@ export default function AutomationCommandBar({
           action: 'UPDATE_CONFIG',
           targetQuery: targetInput,
           maxDailyQuota: Number(quotaInput) || 20,
+          fonnteToken: fonnteTokenInput,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -300,7 +305,7 @@ export default function AutomationCommandBar({
       {showConfig && (
         <form
           onSubmit={handleSaveConfig}
-          className="px-4 sm:px-5 py-3.5 border-t border-zinc-800/80 bg-[#0e0e11] grid grid-cols-1 md:grid-cols-3 gap-3 items-end text-xs"
+          className="px-4 sm:px-5 py-3.5 border-t border-zinc-800/80 bg-[#0e0e11] grid grid-cols-1 md:grid-cols-4 gap-3 items-end text-xs"
         >
           <div className="md:col-span-2 space-y-1">
             <label htmlFor="autopilot-target" className="text-[11px] font-medium text-zinc-400 block">
@@ -313,6 +318,20 @@ export default function AutomationCommandBar({
               onChange={(e) => setTargetInput(e.target.value)}
               placeholder="Contoh: Sablon Kaos Depok, Konveksi Bogor, Bengkel Cibinong"
               className="w-full px-3 py-2 clean-input rounded-lg text-xs"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label htmlFor="autopilot-fonnte" className="text-[11px] font-medium text-zinc-400 block">
+              Token Fonnte WA Gateway
+            </label>
+            <input
+              id="autopilot-fonnte"
+              type="password"
+              value={fonnteTokenInput}
+              onChange={(e) => setFonnteTokenInput(e.target.value)}
+              placeholder="Tempel Token Fonnte..."
+              className="w-full px-3 py-2 clean-input rounded-lg text-xs font-mono"
             />
           </div>
 
