@@ -1,12 +1,15 @@
 import { NextResponse } from 'next/server';
-import crypto from 'node:crypto';
 
 function safeCompareSecret(provided, configured) {
   if (typeof provided !== 'string' || typeof configured !== 'string') return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(configured);
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(a, b);
+  let mismatch = provided.length === configured.length ? 0 : 1;
+  const len = Math.max(provided.length, configured.length);
+  for (let i = 0; i < len; i++) {
+    const a = provided.charCodeAt(i % (provided.length || 1)) || 0;
+    const b = configured.charCodeAt(i % (configured.length || 1)) || 0;
+    mismatch |= a ^ b;
+  }
+  return mismatch === 0;
 }
 
 const PROTECTED_API_PATHS = [
