@@ -1,7 +1,35 @@
-// Rationale: Fonnte WhatsApp API gateway client for sending outbound messages (Chat 1, Chat 2 qualification, Chat 3 mockup delivery) and checking linked WhatsApp device health.
+// Rationale: Fonnte WhatsApp API gateway client with self-echo guard, token fallback from .agents/fonnte-config.json, and atomic send verification.
+
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 export const FONNTE_SEND_URL = 'https://api.fonnte.com/send';
 export const FONNTE_DEVICE_URL = 'https://api.fonnte.com/device';
+
+const BOT_OUTBOUND_SIGNATURES = [
+  'salam kenal dari tim developer kodekiri',
+  'profil dan portofolio tim kami bisa dicek di https://kodekiri.tech',
+  'tim developer kodekiri sedang menyiapkan gambaran tampilan web singkat',
+  'ini gambaran tampilan website singkat untuk',
+  'mode pratinjau desain oleh tim developer kodekiri',
+  'izin menyapa kembali dari tim developer kodekiri',
+];
+
+export function isBotOwnOutboundEcho(messageText = '', payload = {}) {
+  if (
+    payload?.fromMe === true ||
+    payload?.from_me === true ||
+    payload?.isMe === true ||
+    String(payload?.fromMe || '').toLowerCase() === 'true'
+  ) {
+    return true;
+  }
+
+  const lower = String(messageText || '').toLowerCase().trim();
+  if (!lower) return false;
+
+  return BOT_OUTBOUND_SIGNATURES.some((sig) => lower.includes(sig));
+}
 
 export function normalizeFonnteTarget(phone = '') {
   let digits = String(phone || '').replace(/[^\d]/g, '');
@@ -22,11 +50,27 @@ export function resolveFonnteToken(explicitToken = '') {
   ).trim();
 }
 
+export async function resolveFonnteTokenAsync(explicitToken = '') {
+  const syncToken = resolveFonnteToken(explicitToken);
+  if (syncToken) return syncToken;
+
+  try {
+    const repoRoot = path.resolve(process.cwd(), '..');
+    const cfgPath = path.join(repoRoot, '.agents', 'fonnte-config.json');
+    const raw = await fs.readFile(cfgPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed?.token) return String(parsed.token).trim();
+  } catch {
+    // Ignore missing config file
+  }
+  return '';
+}
+
 export async function checkFonnteDeviceStatus(
   rawToken = '',
   { fetchImpl = globalThis.fetch, timeoutMs = 10000 } = {}
 ) {
-  const token = resolveFonnteToken(rawToken);
+  const token = await resolveFonnteTokenAsync(rawToken);
   if (!token) {
     return {
       ok: false,
@@ -76,7 +120,7 @@ export async function sendWhatsAppViaFonnte(
   { target, message, token: rawToken = '', delay = '2-4' } = {},
   { fetchImpl = globalThis.fetch, timeoutMs = 15000 } = {}
 ) {
-  const token = resolveFonnteToken(rawToken);
+  const token = await resolveFonnteTokenAsync(rawToken);
   const cleanTarget = normalizeFonnteTarget(target);
   const cleanMessage = String(message || '').trim();
 
@@ -84,6 +128,7 @@ export async function sendWhatsAppViaFonnte(
     return {
       ok: false,
       sent: false,
+      tokenConfigured: false,
       reason: 'Token Fonnte belum dikonfigurasi.',
     };
   }
@@ -92,6 +137,7 @@ export async function sendWhatsAppViaFonnte(
     return {
       ok: false,
       sent: false,
+      tokenConfigured: true,
       reason: `Nomor tujuan WhatsApp tidak valid (${target || '-'}).`,
     };
   }
@@ -100,6 +146,7 @@ export async function sendWhatsAppViaFonnte(
     return {
       ok: false,
       sent: false,
+      tokenConfigured: true,
       reason: 'Isi pesan WhatsApp kosong.',
     };
   }
@@ -130,8 +177,12 @@ export async function sendWhatsAppViaFonnte(
     return {
       ok: sentOk,
       sent: sentOk,
+      tokenConfigured: true,
       target: cleanTarget,
-      detail: data?.detail || data?.reason || (sentOk ? 'Pesan terkirim via Fonnte.' : 'Gagal mengirim via Fonnte.'),
+      detail:
+        data?.detail ||
+        data?.reason ||
+        (sentOk ? 'Pesan terkirim via Fonnte.' : 'Gagal mengirim via Fonnte.'),
       id: data?.id || null,
       raw: data,
     };
@@ -139,6 +190,7 @@ export async function sendWhatsAppViaFonnte(
     return {
       ok: false,
       sent: false,
+      tokenConfigured: true,
       target: cleanTarget,
       reason: err?.message || 'Gagal menghubungi endpoint Fonnte.',
     };
