@@ -2,8 +2,8 @@ name: Autopilot Outreach Scheduler
 
 on:
   schedule:
-    # Berjalan tiap 15 menit antara 00:00 - 06:00 UTC (07:00 - 13:00 WIB Asia/Jakarta)
-    - cron: '*/15 0-6 * * *'
+    # Berjalan tiap 15 menit antara 00:00 - 08:00 UTC (07:00 - 15:00 WIB Asia/Jakarta)
+    - cron: '*/15 0-8 * * *'
   workflow_dispatch:
 
 jobs:
@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Trigger Dashboard Autopilot Tick
         env:
-          APP_URL: ${{ secrets.VERCEL_APP_URL || 'https://kodekiri.tech' }}
+          APP_URL: ${{ secrets.VERCEL_APP_URL || 'https://gmaps-leadgen-kodekiri.onrender.com' }}
           CRON_SECRET: ${{ secrets.CRON_SECRET || secrets.MUSE_BRIDGE_SECRET || 'kodekiri_muse_secret_key' }}
         run: |
           echo "Triggering Autopilot Tick at $APP_URL..."

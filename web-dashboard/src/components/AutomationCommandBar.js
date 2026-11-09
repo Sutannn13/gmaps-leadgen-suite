@@ -13,7 +13,7 @@ export default function AutomationCommandBar({
   const [state, setState] = useState({
     enabled: false,
     startHourWib: 7,
-    endHourWib: 13,
+    endHourWib: 15,
     maxDailyQuota: 20,
     sentTodayCount: 0,
     targetQuery: 'Sablon Kaos Depok, Konveksi Kabupaten Bogor, Bengkel Mobil Cibinong',
@@ -24,7 +24,7 @@ export default function AutomationCommandBar({
   const [windowCheck, setWindowCheck] = useState({
     allowed: false,
     formattedTime: '--:-- WIB',
-    windowLabel: '07:00 - 13:00 WIB',
+    windowLabel: '07:00 - 15:00 WIB',
     reason: 'Memeriksa jadwal operasional WIB...',
   });
   const [loading, setLoading] = useState(false);
@@ -201,7 +201,7 @@ export default function AutomationCommandBar({
             </span>
 
             <span className="px-2.5 py-0.5 rounded-md bg-zinc-900/90 border border-zinc-800 text-[11px] font-mono text-zinc-300">
-              Jadwal: 07:00 &ndash; 13:00 WIB ({windowCheck.formattedTime})
+              Jadwal: {windowCheck.windowLabel || '07:00 - 15:00 WIB'} ({windowCheck.formattedTime})
             </span>
 
             <span className="px-2.5 py-0.5 rounded-md bg-zinc-900/90 border border-zinc-800 text-[11px] text-zinc-300">
@@ -338,7 +338,7 @@ export default function AutomationCommandBar({
           <div className="flex items-end gap-2">
             <div className="space-y-1 flex-1">
               <label htmlFor="autopilot-quota" className="text-[11px] font-medium text-zinc-400 block">
-                Batas Aman Chat Baru / Hari (07:00-13:00 WIB)
+                Batas Aman Chat Baru / Hari (07:00-15:00 WIB)
               </label>
               <input
                 id="autopilot-quota"

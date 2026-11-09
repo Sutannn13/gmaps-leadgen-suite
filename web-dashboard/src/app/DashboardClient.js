@@ -1268,7 +1268,7 @@ export default function DashboardClient({
         </div>
       </div>
 
-      {/* 1B. COMMAND CENTER: OTOMATISASIKAN CALON CLIENT (07:00 - 13:00 WIB) */}
+      {/* 1B. COMMAND CENTER: OTOMATISASIKAN CALON CLIENT (07:00 - 15:00 WIB) */}
       <AutomationCommandBar
         eligibleCount={chatUncontactedCount}
         onRunDryRunSimulation={handleRunDryRunSimulation}

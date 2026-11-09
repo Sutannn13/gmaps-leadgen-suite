@@ -137,7 +137,7 @@ export async function POST() {
       time: tick.windowCheck.formattedTime,
       timestamp: nowIso,
       type: 'success',
-      text: `[AUTOPILOT 07:00-13:00 WIB] ${tick.reason} -> ${deliveryNote}.`,
+      text: `[AUTOPILOT 07:00-15:00 WIB] ${tick.reason} -> ${deliveryNote}.`,
     };
 
     const nextState = await writeJsonSetting(AUTOPILOT_DB_KEY, 'autopilot-state.json', {

@@ -12,7 +12,7 @@ const OUTBOX_ROW_KEY = AUTOPILOT_OUTBOX_DB_KEY;
 export const DEFAULT_AUTOPILOT_STATE = {
   enabled: false,
   startHourWib: 7,
-  endHourWib: 13,
+  endHourWib: 15,
   maxDailyQuota: 20,
   sentTodayCount: 0,
   sentDateKey: '',
@@ -104,9 +104,12 @@ export async function readAutopilotStateFromStore({ sqlImpl } = {}) {
       `;
       if (rows && rows.length > 0) {
         const raw = typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value;
+        const migratedEndHour =
+          !raw?.endHourWib || Number(raw.endHourWib) === 13 ? 15 : Number(raw.endHourWib);
         return {
           ...DEFAULT_AUTOPILOT_STATE,
           ...(raw && typeof raw === 'object' ? raw : {}),
+          endHourWib: migratedEndHour,
           activityLogs: Array.isArray(raw?.activityLogs) ? raw.activityLogs.slice(0, 30) : [],
         };
       }
@@ -120,9 +123,14 @@ export async function readAutopilotStateFromStore({ sqlImpl } = {}) {
 
   const { statePath, tmpStatePath } = getStorePaths();
   const fileData = await safeReadJsonFile(statePath, tmpStatePath);
+  const migratedEndHour =
+    !fileData?.endHourWib || Number(fileData.endHourWib) === 13
+      ? 15
+      : Number(fileData.endHourWib);
   return {
     ...DEFAULT_AUTOPILOT_STATE,
     ...(fileData && typeof fileData === 'object' ? fileData : {}),
+    endHourWib: migratedEndHour,
     activityLogs: Array.isArray(fileData?.activityLogs) ? fileData.activityLogs.slice(0, 30) : [],
   };
 }

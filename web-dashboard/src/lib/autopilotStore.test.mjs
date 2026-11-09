@@ -37,7 +37,7 @@ test('autopilotStore reads defaults and updates state in memory SQL store', asyn
   const initial = await readAutopilotStateFromStore({ sqlImpl: mockSql });
   assert.equal(initial.enabled, false);
   assert.equal(initial.startHourWib, 7);
-  assert.equal(initial.endHourWib, 13);
+  assert.equal(initial.endHourWib, 15);
 
   await saveAutopilotStateToStore(
     {

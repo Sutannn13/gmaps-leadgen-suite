@@ -9,31 +9,31 @@ import {
   evaluateAutopilotTick,
 } from './automationEngine.js';
 
-test('isWithinOperatingWindow enforces 07:00 to 13:00 WIB (Asia/Jakarta) window strictly', () => {
+test('isWithinOperatingWindow enforces 07:00 to 15:00 WIB (Asia/Jakarta) window strictly', () => {
   // 06:59 WIB = 23:59 UTC previous day
   const before7Wib = new Date('2026-11-07T23:59:00.000Z');
-  const checkBefore = isWithinOperatingWindow(before7Wib, 7, 13);
+  const checkBefore = isWithinOperatingWindow(before7Wib, 7, 15);
   assert.equal(checkBefore.allowed, false);
   assert.equal(checkBefore.hour, 6);
   assert.equal(checkBefore.minute, 59);
 
   // 07:00 WIB = 00:00 UTC
   const at7Wib = new Date('2026-11-08T00:00:00.000Z');
-  const checkStart = isWithinOperatingWindow(at7Wib, 7, 13);
+  const checkStart = isWithinOperatingWindow(at7Wib, 7, 15);
   assert.equal(checkStart.allowed, true);
   assert.equal(checkStart.hour, 7);
 
-  // 12:59 WIB = 05:59 UTC
-  const before13Wib = new Date('2026-11-08T05:59:00.000Z');
-  const checkMid = isWithinOperatingWindow(before13Wib, 7, 13);
+  // 13:23 WIB = 06:23 UTC -> now ALLOWED under 07:00-15:00 WIB!
+  const at1323Wib = new Date('2026-11-08T06:23:00.000Z');
+  const checkMid = isWithinOperatingWindow(at1323Wib, 7, 15);
   assert.equal(checkMid.allowed, true);
-  assert.equal(checkMid.hour, 12);
+  assert.equal(checkMid.hour, 13);
 
-  // 13:00 WIB = 06:00 UTC -> must stop automatically at 13:00 WIB
-  const at13Wib = new Date('2026-11-08T06:00:00.000Z');
-  const checkAfter = isWithinOperatingWindow(at13Wib, 7, 13);
+  // 15:00 WIB = 08:00 UTC -> must stop automatically at 15:00 WIB
+  const at15Wib = new Date('2026-11-08T08:00:00.000Z');
+  const checkAfter = isWithinOperatingWindow(at15Wib, 7, 15);
   assert.equal(checkAfter.allowed, false);
-  assert.equal(checkAfter.hour, 13);
+  assert.equal(checkAfter.hour, 15);
 });
 
 test('classifyIncomingClientReply transitions stages and triggers HANDOVER_TO_HUMAN on pricing/closing', () => {

@@ -1,4 +1,4 @@
-// Rationale: Deterministic state machine & time-window controller for the "Otomatisasikan Calon Client" (07:00-13:00 WIB) autonomous pipeline.
+// Rationale: Deterministic state machine & time-window controller for the "Otomatisasikan Calon Client" (07:00-15:00 WIB) autonomous pipeline.
 
 import { evaluateLeadQualification, evaluateGeographicEligibility } from './leadQualification.js';
 import {
@@ -12,7 +12,7 @@ import {
 
 export const OPERATING_TIMEZONE = 'Asia/Jakarta';
 export const DEFAULT_START_HOUR_WIB = 7; // 07:00 WIB
-export const DEFAULT_END_HOUR_WIB = 13; // 13:00 WIB
+export const DEFAULT_END_HOUR_WIB = 15; // 15:00 WIB
 export const DEFAULT_MAX_DAILY_QUOTA = 20;
 
 export const PIPELINE_STAGES = {
@@ -21,7 +21,7 @@ export const PIPELINE_STAGES = {
     step: 1,
     label: 'Antrean Baru',
     shortLabel: 'Antrean',
-    description: 'Belum dihubungi, siap dikirim Chat 1 pada jam 07:00-13:00 WIB.',
+    description: 'Belum dihubungi, siap dikirim Chat 1 pada jam 07:00-15:00 WIB.',
     badgeClass: 'bg-zinc-900 text-zinc-300 border-zinc-700',
     dotClass: 'bg-zinc-400',
   },
@@ -407,7 +407,7 @@ export function evaluateAutopilotTick({
     };
   }
 
-  // Gate 2: Must be within 07:00 - 13:00 WIB operating window
+  // Gate 2: Must be within 07:00 - 15:00 WIB operating window
   if (!windowCheck.allowed) {
     return {
       allowed: false,

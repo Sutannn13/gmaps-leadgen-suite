@@ -137,7 +137,7 @@ export async function POST(request) {
         fonnteToken: nextFonnteToken,
         updatedAt: nowIso,
         activityLogs: appendLog(
-          `Konfigurasi diperbarui: Target "${nextTarget}" (Kuota maks ${nextQuota} prospek/hari, jam 07:00-13:00 WIB).`,
+          `Konfigurasi diperbarui: Target "${nextTarget}" (Kuota maks ${nextQuota} prospek/hari, jam ${windowCheck.windowLabel}).`,
           'info'
         ),
       });
