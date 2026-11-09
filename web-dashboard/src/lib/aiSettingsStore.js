@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { openDb } from './db.js';
+import { openDb, hasValidDatabaseUrl } from './db.js';
 
 function getLocalSettingsFilePath() {
   const repoRoot = path.resolve(process.cwd(), '..');
@@ -109,7 +109,7 @@ export function formatPublicAiSettings(record = {}, updatedAt = null) {
 
 export async function getDecryptedAiSettingsFromDb({ sqlImpl, secretOverride } = {}) {
   let rows = [];
-  if (!sqlImpl && !process.env.DATABASE_URL) {
+  if (!sqlImpl && !hasValidDatabaseUrl()) {
     try {
       const rawFile = await fs.readFile(getLocalSettingsFilePath(), 'utf8');
       const parsedFile = JSON.parse(rawFile);
@@ -213,7 +213,7 @@ export async function saveAiSettingsToDb(input = {}, { sqlImpl, secretOverride }
   const payloadJson = JSON.stringify(storedPayload);
   let updatedAt = new Date().toISOString();
 
-  if (!sqlImpl && !process.env.DATABASE_URL) {
+  if (!sqlImpl && !hasValidDatabaseUrl()) {
     const filePath = getLocalSettingsFilePath();
     try {
       await fs.mkdir(path.dirname(filePath), { recursive: true });

@@ -12,8 +12,8 @@ services:
       - key: ADMIN_PASSWORD
         value: password123
       - key: DATABASE_URL
-        sync: false
+        value: ""
       - key: OPENROUTER_API_KEY
-        sync: false
+        value: ""
       - key: DEEPSEEK_API_KEY
-        sync: false
+        value: ""

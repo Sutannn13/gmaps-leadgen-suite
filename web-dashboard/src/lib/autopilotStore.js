@@ -1,6 +1,13 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { openDb } from './db.js';
+import { openDb, hasValidDatabaseUrl } from './db.js';
+
+export const AUTOPILOT_DB_KEY = 'autopilot_state';
+export const MUSE_RESULTS_DB_KEY = 'muse_results_v1';
+export const AUTOPILOT_OUTBOX_DB_KEY = 'autopilot_outbox';
+
+const STATE_ROW_KEY = AUTOPILOT_DB_KEY;
+const OUTBOX_ROW_KEY = AUTOPILOT_OUTBOX_DB_KEY;
 
 export const DEFAULT_AUTOPILOT_STATE = {
   enabled: false,
@@ -9,6 +16,7 @@ export const DEFAULT_AUTOPILOT_STATE = {
   maxDailyQuota: 20,
   sentTodayCount: 0,
   sentDateKey: '',
+  nextAllowedSendAt: null,
   targetQuery: 'Sablon Kaos Depok, Konveksi Kabupaten Bogor, Bengkel Mobil Cibinong',
   waBridgeStatus: 'READY',
   currentAction: 'Menunggu tombol "Otomatisasikan Calon Client" diaktifkan.',
@@ -17,8 +25,6 @@ export const DEFAULT_AUTOPILOT_STATE = {
   activityLogs: [],
 };
 
-const STATE_ROW_KEY = 'autopilot_state';
-const OUTBOX_ROW_KEY = 'autopilot_outbox';
 let tableEnsured = false;
 
 async function ensureAppSettingTable(sql) {
@@ -43,6 +49,11 @@ function getStorePaths() {
     tmpStatePath: path.join('/tmp', 'autopilot-state.json'),
     tmpOutboxPath: path.join('/tmp', 'autopilot-outbox.json'),
   };
+}
+
+function getLocalAgentsFilePath(fileName) {
+  const repoRoot = path.resolve(process.cwd(), '..');
+  return path.join(repoRoot, '.agents', fileName);
 }
 
 async function safeWriteJsonFile(targetPath, fallbackTmpPath, data) {
@@ -99,6 +110,9 @@ export async function readAutopilotStateFromStore({ sqlImpl } = {}) {
           activityLogs: Array.isArray(raw?.activityLogs) ? raw.activityLogs.slice(0, 30) : [],
         };
       }
+      if (sqlImpl) {
+        return { ...DEFAULT_AUTOPILOT_STATE };
+      }
     } catch (err) {
       console.warn('Neon DB unreachable for autopilot state, falling back to file store:', err?.message);
     }
@@ -132,6 +146,9 @@ export async function saveAutopilotStateToStore(nextState, { sqlImpl } = {}) {
         SET value = EXCLUDED.value,
             "updatedAt" = CURRENT_TIMESTAMP
       `;
+      if (sqlImpl) {
+        return sanitized;
+      }
     } catch (err) {
       console.warn('Neon DB failed to persist autopilot state:', err?.message);
     }
@@ -156,6 +173,9 @@ export async function readAutopilotOutboxFromStore({ sqlImpl } = {}) {
       if (rows && rows.length > 0) {
         const raw = typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value;
         return raw && typeof raw === 'object' ? raw : { queue: [] };
+      }
+      if (sqlImpl) {
+        return { queue: [] };
       }
     } catch (err) {
       console.warn('Neon DB unreachable for autopilot outbox:', err?.message);
@@ -182,6 +202,9 @@ export async function saveAutopilotOutboxToStore(nextOutbox, { sqlImpl } = {}) {
         SET value = EXCLUDED.value,
             "updatedAt" = CURRENT_TIMESTAMP
       `;
+      if (sqlImpl) {
+        return sanitized;
+      }
     } catch (err) {
       console.warn('Neon DB failed to persist autopilot outbox:', err?.message);
     }
@@ -192,3 +215,76 @@ export async function saveAutopilotOutboxToStore(nextOutbox, { sqlImpl } = {}) {
   return sanitized;
 }
 
+export async function readJsonSetting(dbKey, localFileName, fallbackValue = {}) {
+  if (hasValidDatabaseUrl()) {
+    try {
+      const sql = await openDb();
+      await ensureAppSettingTable(sql);
+      const rows = await sql`
+        SELECT value FROM "AppSetting"
+        WHERE key = ${dbKey}
+        LIMIT 1
+      `;
+      if (rows && rows.length > 0 && rows[0].value) {
+        const val =
+          typeof rows[0].value === 'string'
+            ? JSON.parse(rows[0].value)
+            : rows[0].value;
+        return { ...fallbackValue, ...val };
+      }
+    } catch (err) {
+      console.warn(`Failed reading ${dbKey} from Neon DB:`, err?.message);
+    }
+  }
+
+  if (localFileName) {
+    const fileData = await safeReadJsonFile(
+      getLocalAgentsFilePath(localFileName),
+      path.join('/tmp', localFileName)
+    );
+    if (fileData && typeof fileData === 'object') {
+      return { ...fallbackValue, ...fileData };
+    }
+  }
+
+  return { ...fallbackValue };
+}
+
+export async function writeJsonSetting(dbKey, localFileName, payload = {}) {
+  if (hasValidDatabaseUrl()) {
+    try {
+      const sql = await openDb();
+      await ensureAppSettingTable(sql);
+      const jsonStr = JSON.stringify(payload);
+      await sql`
+        INSERT INTO "AppSetting" (key, value, "updatedAt")
+        VALUES (${dbKey}, ${jsonStr}::jsonb, CURRENT_TIMESTAMP)
+        ON CONFLICT (key) DO UPDATE
+        SET value = EXCLUDED.value,
+            "updatedAt" = CURRENT_TIMESTAMP
+      `;
+    } catch (err) {
+      console.warn(`Failed writing ${dbKey} to Neon DB:`, err?.message);
+    }
+  }
+
+  if (localFileName) {
+    await safeWriteJsonFile(
+      getLocalAgentsFilePath(localFileName),
+      path.join('/tmp', localFileName),
+      payload
+    );
+  }
+
+  return payload;
+}
+
+export async function safeWriteLocalTextFile(localFileName, content) {
+  try {
+    const filePath = getLocalAgentsFilePath(localFileName);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, content, 'utf8');
+  } catch {
+    // Ignore on read-only serverless disk
+  }
+}

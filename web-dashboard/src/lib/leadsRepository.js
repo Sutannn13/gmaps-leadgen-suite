@@ -2,7 +2,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { openDb } from './db.js';
+import { openDb, hasValidDatabaseUrl } from './db.js';
 import {
   evaluateGeographicEligibility,
   hasMobileWhatsAppNumber,
@@ -252,7 +252,7 @@ async function writeLocalStore(leads = []) {
 }
 
 export async function listAllLeadsFromRepo() {
-  if (process.env.DATABASE_URL) {
+  if (hasValidDatabaseUrl()) {
     try {
       const sql = await openDb();
       const [leads, categories] = await Promise.all([
@@ -379,7 +379,7 @@ export async function updateLeadAiResearchInRepo(id, aiResearch) {
   );
   await writeLocalStore(nextLeads);
 
-  if (process.env.DATABASE_URL) {
+  if (hasValidDatabaseUrl()) {
     const jsonPayload = JSON.stringify(aiResearch);
     const sql = await openDb();
     if (/^\d+$/.test(cleanId)) {
@@ -408,7 +408,7 @@ export async function updateLeadChatStatusInRepo(id, chatStatus, contactedAt) {
   );
   await writeLocalStore(nextLeads);
 
-  if (process.env.DATABASE_URL) {
+  if (hasValidDatabaseUrl()) {
     const sql = await openDb();
     if (/^\d+$/.test(cleanId)) {
       await sql`
@@ -435,7 +435,7 @@ export async function deleteLeadsFromRepo(ids = null) {
   }
   await writeLocalStore(nextLeads);
 
-  if (process.env.DATABASE_URL) {
+  if (hasValidDatabaseUrl()) {
     const sql = await openDb();
     if (!Array.isArray(ids)) {
       await sql`DELETE FROM "Lead"`;
