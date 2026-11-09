@@ -211,3 +211,108 @@ test('evaluateAutopilotTick enforces all 4 gates: enabled, 07:00-13:00 WIB windo
   assert.equal(execRes.targetLead.id, 'tapos-001');
   assert.ok(execRes.nextAction.whatsappMessage.includes('Tim Developer KodeKiri'));
 });
+
+test('End-to-End Pipeline: Muse.ai verified leads feed directly into Autopilot with language & geo rules', () => {
+  const verifiedMuseLeads = [
+    {
+      id: 'depok-shop-01',
+      name: 'Bengkel Motor Berkah Sawangan',
+      categoryName: 'Bengkel Motor',
+      address: 'Jl. Raya Sawangan No. 12, Pancoran Mas, Kota Depok',
+      phone: '081288990011',
+      whatsapp: '6281288990011',
+      website: '',
+      websiteStatus: 'no_website',
+      geoScope: 'JABODETABEK',
+      language: 'id',
+      chatStatus: 'BELUM',
+    },
+    {
+      id: 'overseas-b2b-02',
+      name: 'Melbourne Apparel Sourcing',
+      categoryName: 'Apparel Wholesale',
+      address: 'Melbourne, Australia',
+      phone: '+61412345678',
+      whatsapp: '+61412345678',
+      website: '',
+      websiteStatus: 'no_website',
+      geoScope: 'INTERNATIONAL',
+      language: 'en',
+      chatStatus: 'BELUM',
+    },
+    {
+      id: 'outside-offline-03',
+      name: 'Bengkel Bubut Surabaya Jaya',
+      categoryName: 'Bengkel Motor',
+      address: 'Jl. Tunjungan No. 88, Surabaya, Jawa Timur',
+      phone: '081399887766',
+      whatsapp: '6281399887766',
+      website: '',
+      websiteStatus: 'no_website',
+      geoScope: 'OUTSIDE_OFFLINE_SCOPE',
+      language: 'id',
+      chatStatus: 'BELUM',
+    },
+    {
+      id: 'dead-web-hot-04',
+      name: 'Mebel Kayu Jati Tapos',
+      categoryName: 'Mebel & Interior',
+      address: 'Jl. Raya Tapos No. 20, Kota Depok',
+      phone: '081255443322',
+      whatsapp: '6281255443322',
+      website: '',
+      deadWebsiteUrl: 'https://mebelkayujatitapos-lama.com',
+      websiteStatus: 'website_dead',
+      geoScope: 'JABODETABEK',
+      language: 'id',
+      chatStatus: 'BELUM',
+    },
+    {
+      id: 'owned-web-skip-05',
+      name: 'PT Toko Sudah Punya Web',
+      categoryName: 'Toko Elektronik',
+      address: 'Jl. Margonda Raya No. 100, Kota Depok',
+      phone: '081233221100',
+      whatsapp: '6281233221100',
+      website: 'https://tokosudahpunyaweb.co.id',
+      websiteStatus: 'has_website',
+      geoScope: 'JABODETABEK',
+      chatStatus: 'BELUM',
+    },
+  ];
+
+  // 1. Filter eligible: only depok-shop-01, overseas-b2b-02, and dead-web-hot-04 pass
+  const eligible = filterEligibleAutopilotLeads(verifiedMuseLeads, 10);
+  assert.equal(eligible.length, 3);
+  assert.equal(eligible[0].lead.id, 'depok-shop-01');
+  assert.equal(eligible[1].lead.id, 'overseas-b2b-02');
+  assert.equal(eligible[2].lead.id, 'dead-web-hot-04');
+
+  // 2. Check stage derivation: all start in QUEUED
+  assert.equal(eligible[0].stage, 'QUEUED');
+  assert.equal(eligible[1].stage, 'QUEUED');
+  assert.equal(eligible[2].stage, 'QUEUED');
+
+  // 3. Autopilot execution on local Indonesian lead (09:00 WIB = 02:00 UTC)
+  const tickLocal = evaluateAutopilotTick({
+    state: { enabled: true, sentTodayCount: 0, maxDailyQuota: 20 },
+    leads: [eligible[0].lead],
+    now: new Date('2026-11-09T02:00:00.000Z'),
+  });
+  assert.equal(tickLocal.allowed, true);
+  assert.equal(tickLocal.targetLead.id, 'depok-shop-01');
+  assert.ok(tickLocal.nextAction.whatsappMessage.includes('Halo Kak, admin Bengkel Motor Berkah Sawangan ya?'));
+  assert.ok(!tickLocal.nextAction.whatsappMessage.includes('Hi there'));
+
+  // 4. Autopilot execution on International lead (English only)
+  const tickIntl = evaluateAutopilotTick({
+    state: { enabled: true, sentTodayCount: 1, maxDailyQuota: 20 },
+    leads: [eligible[1].lead],
+    now: new Date('2026-11-09T02:00:00.000Z'),
+  });
+  assert.equal(tickIntl.allowed, true);
+  assert.equal(tickIntl.targetLead.id, 'overseas-b2b-02');
+  assert.ok(tickIntl.nextAction.whatsappMessage.includes('Hi there, reaching out from Tim Developer KodeKiri'));
+  assert.ok(tickIntl.nextAction.whatsappMessage.includes('Melbourne Apparel Sourcing'));
+  assert.ok(!tickIntl.nextAction.whatsappMessage.includes('Halo Kak'));
+});

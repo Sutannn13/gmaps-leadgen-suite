@@ -298,6 +298,9 @@ export default function AutomationCommandBar({
               placeholder="Contoh: Sablon Kaos Depok, Konveksi Bogor, Bengkel Cibinong"
               className="w-full px-3 py-2 clean-input rounded-lg text-xs"
             />
+            <span className="text-[10px] text-zinc-500 block">
+              Toko fisik/offline otomatis difilter Jabodetabek. Jasa kirim, konveksi &amp; B2B berlaku Nasional &amp; Internasional (English only).
+            </span>
           </div>
 
           <div className="flex items-end gap-2">

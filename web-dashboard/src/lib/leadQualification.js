@@ -153,13 +153,196 @@ export function classifyWebsiteUrl(rawUrl) {
 }
 
 export function hasMobileWhatsAppNumber(phone, whatsapp) {
-  const candidate = String(whatsapp || phone || '').replace(/[^\d]/g, '');
+  const raw = String(whatsapp || phone || '').trim();
+  const candidate = raw.replace(/[^\d]/g, '');
   if (!candidate) return false;
+
+  // International numbers (e.g. +61, +65, +1, +44)
+  if (raw.startsWith('+') && !raw.startsWith('+62')) {
+    return candidate.length >= 8;
+  }
+
   return (
     candidate.startsWith('08') ||
     candidate.startsWith('628') ||
     (candidate.startsWith('8') && candidate.length >= 9)
   );
+}
+
+// Regex for Jabodetabek (Jakarta, Bogor, Depok, Tangerang, Bekasi & major sub-districts)
+const JABODETABEK_PATTERN =
+  /\b(?:jakarta|dki|depok|bogor|tangerang|tangsel|bekasi|cibinong|cileungsi|bojong\s*gede|gunung\s*putri|parung|sawangan|tapos|cimanggis|beji|sukmajaya|cinere|ciputat|pamulang|serpong|bsd|bintaro|cikarang|tambun)\b/i;
+
+const OFFLINE_STORE_CATEGORY_PATTERN =
+  /\b(?:bengkel|salon|barber|barbershop|toko\s*bangunan|material|klinik|dokter|apotek|cuci\s*mobil|cuci\s*motor|steam|laundry|cafe|kafe|resto|restoran|warung|rumah\s*makan|kedai|mebel|furniture|interior|tambal\s*ban|las\s*karbit|las\s*listrik|service\s*hp|service\s*elektronik)\b/i;
+
+const OVERSEAS_PATTERN =
+  /\b(?:singapore|malaysia|australia|united\s*states|usa|united\s*kingdom|uk|japan|korea|germany|canada|netherlands|thailand|vietnam|philippines)\b/i;
+
+export function isJabodetabekAddress(address = '') {
+  return JABODETABEK_PATTERN.test(String(address || ''));
+}
+
+export function evaluateGeographicEligibility(lead = {}) {
+  const address = String(lead.address || '').trim();
+  const phone = String(lead.whatsapp || lead.phone || '').trim();
+  const category = String(lead.categoryName || lead.category || '').trim();
+
+  // 1. Detect international prospect
+  const isOverseasAddress = OVERSEAS_PATTERN.test(address);
+  const isOverseasPhone = phone.startsWith('+') && !phone.startsWith('+62');
+  if (isOverseasAddress || isOverseasPhone) {
+    return {
+      eligible: true,
+      scope: 'INTERNATIONAL',
+      language: 'en',
+      reason: 'Prospek internasional (komunikasi menggunakan standar English only).',
+    };
+  }
+
+  // 2. Offline physical stores require Jabodetabek localization for high-trust closing
+  const isOffline = OFFLINE_STORE_CATEGORY_PATTERN.test(category) || OFFLINE_STORE_CATEGORY_PATTERN.test(lead.name || '');
+  const inJabodetabek = isJabodetabekAddress(address);
+
+  if (isOffline && !inJabodetabek && address.length > 5) {
+    return {
+      eligible: false,
+      scope: 'OUTSIDE_OFFLINE_SCOPE',
+      language: 'id',
+      reason: 'Toko fisik di luar jangkauan Jabodetabek (membutuhkan asistensi tatap muka/trust lokal).',
+    };
+  }
+
+  if (inJabodetabek) {
+    return {
+      eligible: true,
+      scope: 'JABODETABEK',
+      language: 'id',
+      reason: 'Wilayah operasional prioritas Jabodetabek.',
+    };
+  }
+
+  // Deliverable businesses / national scale
+  return {
+    eligible: true,
+    scope: 'NATIONAL',
+    language: 'id',
+    reason: 'Layanan jasa/produk dengan jangkauan pengiriman nasional.',
+  };
+}
+
+export async function verifyWebsiteTarget(rawUrl = '', options = {}) {
+  const clean = String(rawUrl || '').trim();
+  if (!clean || clean.length < 4 || !clean.includes('.')) {
+    return {
+      status: 'no_website',
+      hasWebsite: false,
+      isDead: false,
+      url: '',
+      platform: null,
+    };
+  }
+
+  const classified = classifyWebsiteUrl(clean);
+  if (classified === 'SOCIAL') {
+    let platform = 'social';
+    if (clean.includes('instagram.com') || clean.includes('instagr.am')) platform = 'instagram';
+    else if (clean.includes('tiktok.com')) platform = 'tiktok';
+    else if (clean.includes('linktr.ee') || clean.includes('bio.link')) platform = 'linktree';
+    return {
+      status: 'social_only',
+      hasWebsite: false,
+      isDead: false,
+      url: clean,
+      platform,
+    };
+  }
+
+  if (classified === 'MARKETPLACE') {
+    return {
+      status: 'social_only',
+      hasWebsite: false,
+      isDead: false,
+      url: clean,
+      platform: 'marketplace',
+    };
+  }
+
+  if (classified === 'FREE_BUILDER') {
+    return {
+      status: 'free_builder',
+      hasWebsite: false,
+      isDead: false,
+      url: clean,
+      platform: 'free_builder',
+    };
+  }
+
+  // Check owned domain validity via HTTP HEAD/GET
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (typeof fetchImpl !== 'function') {
+    return {
+      status: 'has_website',
+      hasWebsite: true,
+      isDead: false,
+      url: clean,
+      platform: 'owned_domain',
+    };
+  }
+
+  try {
+    const fullUrl = clean.startsWith('http://') || clean.startsWith('https://') ? clean : `https://${clean}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 3500);
+
+    const res = await fetchImpl(fullUrl, {
+      method: 'HEAD',
+      headers: {
+        'User-Agent': 'KodeKiri-Verifier/1.0 (+https://kodekiri.tech)',
+      },
+      signal: controller.signal,
+    }).catch(async () => {
+      // Fallback to GET if HEAD method is blocked
+      return await fetchImpl(fullUrl, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'KodeKiri-Verifier/1.0 (+https://kodekiri.tech)',
+        },
+        signal: controller.signal,
+      });
+    });
+
+    clearTimeout(timeout);
+
+    if (res && res.status >= 200 && res.status < 400) {
+      return {
+        status: 'has_website',
+        hasWebsite: true,
+        isDead: false,
+        url: clean,
+        statusCode: res.status,
+        platform: 'owned_domain',
+      };
+    }
+
+    return {
+      status: 'website_dead',
+      hasWebsite: false,
+      isDead: true,
+      url: clean,
+      statusCode: res?.status || null,
+      platform: 'owned_domain',
+    };
+  } catch {
+    return {
+      status: 'website_dead',
+      hasWebsite: false,
+      isDead: true,
+      url: clean,
+      statusCode: null,
+      platform: 'owned_domain',
+    };
+  }
 }
 
 export function evaluateLeadQualification(lead = {}) {

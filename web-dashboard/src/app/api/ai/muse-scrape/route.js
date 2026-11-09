@@ -8,6 +8,10 @@ import {
   normalizePhoneKey,
   mapMuseScrapedRecordToLead,
 } from '@/lib/leadsRepository';
+import {
+  evaluateGeographicEligibility,
+  verifyWebsiteTarget,
+} from '@/lib/leadQualification';
 
 function getScrapePaths() {
   const repoRoot = path.resolve(process.cwd(), '..');
@@ -99,8 +103,22 @@ async function tryLiveOsmNominatimScrape(rawQuery) {
 
 export async function POST(request) {
   try {
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const targetQuery = String(body?.targetQuery || 'Kecamatan Tapos, Kota Depok').trim();
+    const requestedGeoScope = body?.geoScope || {
+      type: 'AUTO_DETECT',
+      preferredRegencies: [
+        'Kota Depok',
+        'Kota Bogor',
+        'Kabupaten Bogor',
+        'Kota Bekasi',
+        'Kabupaten Bekasi',
+        'Kota Tangerang',
+        'Kota Tangerang Selatan',
+        'Kabupaten Tangerang',
+        'DKI Jakarta',
+      ],
+    };
 
     const { agentsDir, queuePath, scrapedLeadsPath } = getScrapePaths();
     await fs.mkdir(agentsDir, { recursive: true });
@@ -123,6 +141,7 @@ export async function POST(request) {
         {
           jobId,
           targetQuery,
+          geoScope: requestedGeoScope,
           onlyNoWebsite: false,
           requestedAt,
           outputFile: scrapedLeadsPath,
@@ -149,7 +168,34 @@ export async function POST(request) {
     const osmLeads = await tryLiveOsmNominatimScrape(targetQuery);
     candidates.push(...osmLeads);
 
-    const mappedCandidates = candidates.map((item, idx) =>
+    // Deep-verify candidates & filter out-of-scope offline stores
+    const verifiedCandidates = [];
+    for (const item of candidates) {
+      if (!item?.name) continue;
+
+      // Verify website status if unknown
+      if (item.website && !item.websiteStatus) {
+        const v = await verifyWebsiteTarget(item.website);
+        item.websiteStatus = v.status;
+        if (v.isDead) {
+          item.deadWebsiteUrl = item.website;
+        }
+      }
+
+      // Check geographic eligibility
+      const geo = evaluateGeographicEligibility(item);
+      item.geoScope = geo.scope;
+      item.language = geo.language;
+
+      // Skip offline physical stores outside Jabodetabek (requires face-to-face trust)
+      if (geo.eligible === false && geo.scope === 'OUTSIDE_OFFLINE_SCOPE') {
+        continue;
+      }
+
+      verifiedCandidates.push(item);
+    }
+
+    const mappedCandidates = verifiedCandidates.map((item, idx) =>
       mapMuseScrapedRecordToLead(item, idx, requestedAt)
     );
 

@@ -228,6 +228,26 @@ test('extractBusinessIdentity and buildDefaultWaPitch clean SEO-stuffed store na
   assert.ok(chat2.includes('https://kodekiri.tech'));
   assert.ok(chat2.includes('Ofcourse Apparel'));
 
+  // Test International English outreach
+  const internationalLead = {
+    name: 'Melbourne Coffee Roasters',
+    categoryName: 'Coffee Roastery',
+    address: 'Melbourne, Australia',
+    phone: '+61412345678',
+    language: 'en',
+    geoScope: 'INTERNATIONAL',
+  };
+  const intlChat1 = buildDefaultWaPitch(internationalLead);
+  assert.ok(intlChat1.includes('Hi there, reaching out from Tim Developer KodeKiri'));
+  assert.ok(intlChat1.includes('Melbourne Coffee Roasters'));
+  assert.ok(intlChat1.includes('one-page'));
+  assert.ok(!intlChat1.includes('Halo Kak'));
+
+  const intlChat2 = buildQualificationReplyDraft(internationalLead);
+  assert.ok(intlChat2.includes('https://kodekiri.tech'));
+  assert.ok(intlChat2.includes('Melbourne Coffee Roasters'));
+  assert.ok(!intlChat2.includes('Siap Kak'));
+
   const musePrompt = buildMuseMockupBridgePrompt(seoLead, {
     clientNotes: 'Sablon DTF & plastisol lusinan',
     referenceUrl: 'https://contoh-sablon-premium.com',

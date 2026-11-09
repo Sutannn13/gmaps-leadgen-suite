@@ -391,6 +391,12 @@ export function buildDefaultWaPitch(lead = {}, settings = DEFAULT_AI_SETTINGS) {
     ? ` untuk layanan ${identity.extractedSpecialty.toLowerCase()}`
     : '';
 
+  // English pitch for international prospects
+  if (lead.language === 'en' || lead.geoScope === 'INTERNATIONAL') {
+    const enDraft = `Hi there, reaching out from ${agencyName}. We came across ${identity.cleanBrandName} and really loved your positive reviews and product quality. Quick question: do you currently have a dedicated one-page portfolio or catalog website for direct inquiries, or are you primarily handling orders through social media and messaging? If you would be open to it, our team would love to build a quick, free preview of a clean one-page web catalog for ${identity.cleanBrandName} (zero commitment required). Would it be okay if we put a draft together for you to see?`;
+    return humanizeGeneratedText(enDraft);
+  }
+
   const draft = `Halo Kak, admin ${identity.cleanBrandName} ya? Salam kenal dari ${agencyName}. Kami lihat profil usaha Kakak di Google Maps sudah punya ulasan bagus${specialtyPhrase}, namun belum mencantumkan ${identity.valuePropLabel}. Boleh kami coba buatkan gambaran tampilan web singkat khusus untuk ${identity.cleanBrandName} Kak? Kalau belum butuh saat ini santai saja, abaikan tidak apa-apa.`;
 
   return humanizeGeneratedText(draft);
@@ -403,6 +409,11 @@ export function buildQualificationReplyDraft(lead = {}, settings = DEFAULT_AI_SE
     lead.address
   );
   const agencyWebsite = String(settings?.agencyWebsite || DEFAULT_AGENCY_WEBSITE).trim();
+
+  if (lead.language === 'en' || lead.geoScope === 'INTERNATIONAL') {
+    const enReply = `Thank you! In the meantime, you can review our team profile and portfolio at ${agencyWebsite}. To tailor the one-page mockup specifically for ${identity.cleanBrandName}, could you let us know what your most requested product or service is? We will prepare the design preview so you can see if it fits. Zero commitment required.`;
+    return humanizeGeneratedText(enReply);
+  }
 
   const reply = `Siap Kak, terima kasih. Sambil jalan, profil dan portofolio tim kami bisa dicek di ${agencyWebsite} ya Kak.
 
@@ -468,7 +479,11 @@ ${
 - AKSESIBILITAS & MOBILE-FIRST (SKILL: superior-accessibility): 95% pemilik usaha membuka link ini dari WhatsApp di layar HP. Pastikan tata letak mobile-first, tanpa horizontal overflow, ukuran tombol nyaman disentuh, dan rasio kontras teks minimal 4.5:1.
 
 3. INSTRUKSI MARKETING & COPYWRITING LOKAL (SKILL: marketingskills/cro + copywriting + humanizer):
-- Gunakan bahasa Indonesia yang natural, langsung ke manfaat nyata, dan akrab bagi pelanggan di area ${identity.address || 'Depok/Bogor'}.
+${
+  lead.language === 'en' || lead.geoScope === 'INTERNATIONAL'
+    ? `- COPYWRITING LANGUAGE: STRICT ENGLISH ONLY. Use clear, direct B2B copywriting emphasizing product quality and direct communication.`
+    : `- Gunakan bahasa Indonesia yang natural, langsung ke manfaat nyata, dan akrab bagi pelanggan di area ${identity.address || 'Depok/Bogor'}.`
+}
 - Jangan gunakan tanda double dash (--) atau em-dash.
 
 4. GERBANG AUDIT WAJIB: CROSS-CHECK ANTI-DUMMY & ANTI-BOCORAN REFERENSI (WAJIB DICEK SEBELUM SELESAI):

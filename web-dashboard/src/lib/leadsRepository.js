@@ -3,6 +3,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { openDb } from './db.js';
+import { evaluateGeographicEligibility } from './leadQualification.js';
 import {
   DEFAULT_AI_SETTINGS,
   buildDefaultWaPitch,
@@ -73,6 +74,22 @@ export function mapMuseScrapedRecordToLead(item, index = 0, nowIso = new Date().
         `${item.name || ''} ${item.address || 'Tapos Depok'}`.trim()
       )}`,
     isChain: Boolean(item.isChain),
+    geoScope: item.geoScope || evaluateGeographicEligibility({
+      name: item.name,
+      categoryName: item.category || item.categoryName,
+      address: item.address,
+      phone: rawPhone,
+      whatsapp: isMobileWa ? rawPhone : '',
+    }).scope,
+    language: item.language || evaluateGeographicEligibility({
+      name: item.name,
+      categoryName: item.category || item.categoryName,
+      address: item.address,
+      phone: rawPhone,
+      whatsapp: isMobileWa ? rawPhone : '',
+    }).language,
+    extractedSpecialty: String(item.extractedSpecialty || '').trim(),
+    suggestedHook: String(item.suggestedHook || '').trim(),
     chatStatus: item.chatStatus || 'BELUM',
     contactedAt: item.contactedAt || null,
     scrapedAt: item.scrapedAt || nowIso,
