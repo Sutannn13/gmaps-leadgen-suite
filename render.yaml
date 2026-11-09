@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: gmaps-leadgen-kodekiri
+    runtime: node
+    plan: free
+    rootDir: web-dashboard
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: ADMIN_PASSWORD
+        value: password123
+      - key: DATABASE_URL
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false

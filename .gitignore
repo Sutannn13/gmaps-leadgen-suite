@@ -12,3 +12,4 @@ node_modules/
 .agents/ai-settings-local.json
 .agents/leads-store.json
 .agents/autopilot-outbox.json
+.agents/fonnte-config.json

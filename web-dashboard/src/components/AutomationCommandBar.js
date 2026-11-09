@@ -7,6 +7,7 @@ export default function AutomationCommandBar({
   onRunDryRunSimulation,
   onScrapeLocationWithMuse,
   onResetAutopilotStages,
+  onAutopilotTickExecuted,
   isScrapingMuse = false,
 }) {
   const [state, setState] = useState({
@@ -49,14 +50,17 @@ export default function AutomationCommandBar({
       if (data?.state?.enabled && data?.windowCheck?.allowed) {
         const tickRes = await fetch('/api/automation/tick', { method: 'POST' });
         const tickData = await tickRes.json().catch(() => ({}));
-        if (tickData?.executed && tickData?.state) {
-          setState(tickData.state);
+        if (tickData?.executed) {
+          if (tickData.state) setState(tickData.state);
+          if (onAutopilotTickExecuted && Array.isArray(tickData.allLeads)) {
+            onAutopilotTickExecuted(tickData.allLeads, tickData.reason);
+          }
         }
       }
     } catch {
       // Ignore background poll error
     }
-  }, [state.targetQuery]);
+  }, [state.targetQuery, onAutopilotTickExecuted]);
 
   useEffect(() => {
     fetchStatus();
@@ -104,6 +108,18 @@ export default function AutomationCommandBar({
       if (data?.success && data.state) {
         setState(data.state);
         if (data.windowCheck) setWindowCheck(data.windowCheck);
+
+        // Immediately run first tick if toggled ON during 07:00-13:00 WIB
+        if (data.state.enabled && data.windowCheck?.allowed) {
+          const tickRes = await fetch('/api/automation/tick', { method: 'POST' });
+          const tickData = await tickRes.json().catch(() => ({}));
+          if (tickData?.executed) {
+            if (tickData.state) setState(tickData.state);
+            if (onAutopilotTickExecuted && Array.isArray(tickData.allLeads)) {
+              onAutopilotTickExecuted(tickData.allLeads, tickData.reason);
+            }
+          }
+        }
       }
     } finally {
       setLoading(false);
@@ -149,8 +165,8 @@ export default function AutomationCommandBar({
             : 'bg-[#121215] border-zinc-800/90'
       }`}
     >
-      <div className="p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="space-y-1.5 min-w-0 flex-1">
+      <div className="p-4 sm:p-5 flex flex-col gap-3.5">
+        <div className="space-y-2 min-w-0 w-full">
           <div className="flex flex-wrap items-center gap-2">
             <span
               className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
@@ -298,9 +314,6 @@ export default function AutomationCommandBar({
               placeholder="Contoh: Sablon Kaos Depok, Konveksi Bogor, Bengkel Cibinong"
               className="w-full px-3 py-2 clean-input rounded-lg text-xs"
             />
-            <span className="text-[10px] text-zinc-500 block">
-              Toko fisik/offline otomatis difilter Jabodetabek. Jasa kirim, konveksi &amp; B2B berlaku Nasional &amp; Internasional (English only).
-            </span>
           </div>
 
           <div className="flex items-end gap-2">
