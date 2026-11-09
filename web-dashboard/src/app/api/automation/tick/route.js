@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { evaluateAutopilotTick } from '@/lib/automationEngine';
+import {
+  readAutopilotStateFromStore,
+  saveAutopilotStateToStore,
+  readAutopilotOutboxFromStore,
+  saveAutopilotOutboxToStore,
+} from '@/lib/autopilotStore';
 import {
   listAllLeadsFromRepo,
   updateLeadAiResearchInRepo,
@@ -12,29 +16,11 @@ import {
   buildGroundedMuseResearch,
 } from '@/lib/openrouter';
 
-function getAutopilotFiles() {
-  const repoRoot = path.resolve(process.cwd(), '..');
-  const agentsDir = path.join(repoRoot, '.agents');
-  return {
-    agentsDir,
-    statePath: path.join(agentsDir, 'autopilot-state.json'),
-    outboxPath: path.join(agentsDir, 'autopilot-outbox.json'),
-  };
-}
+export const maxDuration = 60; // Izinkan durasi hingga 60 detik untuk serverless execution di Vercel
 
 export async function POST() {
   try {
-    const { agentsDir, statePath, outboxPath } = getAutopilotFiles();
-    await fs.mkdir(agentsDir, { recursive: true });
-
-    let state = { enabled: false };
-    try {
-      const raw = await fs.readFile(statePath, 'utf8');
-      state = JSON.parse(raw) || { enabled: false };
-    } catch {
-      state = { enabled: false };
-    }
-
+    const state = await readAutopilotStateFromStore();
     const { leads } = await listAllLeadsFromRepo();
     const tick = evaluateAutopilotTick({
       state,
@@ -68,15 +54,8 @@ export async function POST() {
     await updateLeadAiResearchInRepo(targetLead.id, updatedResearch);
     await updateLeadChatStatusInRepo(targetLead.id, 'SUDAH', nowIso);
 
-    // Write outbound WhatsApp payload to .agents/autopilot-outbox.json for VM Muse.ai hook
-    let outbox = { queue: [] };
-    try {
-      const rawOut = await fs.readFile(outboxPath, 'utf8');
-      outbox = JSON.parse(rawOut) || { queue: [] };
-    } catch {
-      outbox = { queue: [] };
-    }
-
+    // Save outbound WhatsApp payload to durable store (Neon DB / local queue)
+    const outbox = await readAutopilotOutboxFromStore();
     const outboxItem = {
       jobId: `wa_${Date.now()}_${targetLead.id}`,
       leadId: String(targetLead.id),
@@ -95,7 +74,7 @@ export async function POST() {
       latest: outboxItem,
       queue: [outboxItem, ...(Array.isArray(outbox.queue) ? outbox.queue : [])].slice(0, 50),
     };
-    await fs.writeFile(outboxPath, JSON.stringify(nextOutbox, null, 2), 'utf8');
+    await saveAutopilotOutboxToStore(nextOutbox);
 
     const logEntry = {
       id: `log_${Date.now()}_exec`,
@@ -117,7 +96,7 @@ export async function POST() {
         30
       ),
     };
-    await fs.writeFile(statePath, JSON.stringify(nextState, null, 2), 'utf8');
+    await saveAutopilotStateToStore(nextState);
 
     const { leads: updatedAllLeads } = await listAllLeadsFromRepo();
 

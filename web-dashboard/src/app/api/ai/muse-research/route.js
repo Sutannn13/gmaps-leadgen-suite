@@ -27,8 +27,6 @@ export async function POST(request) {
 
     const aiResearch = buildGroundedMuseResearch(lead, settings);
     const queuePath = getResearchQueuePath();
-    await fs.mkdir(path.dirname(queuePath), { recursive: true });
-
     let existing = { history: [] };
     try {
       const raw = await fs.readFile(queuePath, 'utf8');
@@ -50,7 +48,16 @@ export async function POST(request) {
       history: [entry, ...(Array.isArray(existing.history) ? existing.history : [])].slice(0, 50),
     };
 
-    await fs.writeFile(queuePath, JSON.stringify(nextPayload, null, 2), 'utf8');
+    try {
+      await fs.mkdir(path.dirname(queuePath), { recursive: true });
+      await fs.writeFile(queuePath, JSON.stringify(nextPayload, null, 2), 'utf8');
+    } catch (err) {
+      if (err.code === 'EROFS' || err.code === 'EACCES') {
+        try {
+          await fs.writeFile(path.join('/tmp', 'muse-research-queue.json'), JSON.stringify(nextPayload, null, 2), 'utf8');
+        } catch {}
+      }
+    }
 
     return NextResponse.json({
       success: true,

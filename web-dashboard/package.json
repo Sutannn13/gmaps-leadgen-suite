@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test src/lib/openrouter.test.mjs src/lib/leadQualification.test.mjs src/lib/aiSettingsStore.test.mjs src/lib/automationEngine.test.mjs"
+    "test": "node --test src/lib/openrouter.test.mjs src/lib/leadQualification.test.mjs src/lib/aiSettingsStore.test.mjs src/lib/automationEngine.test.mjs src/lib/autopilotStore.test.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

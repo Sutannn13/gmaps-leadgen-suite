@@ -33,15 +33,21 @@ export function middleware(request) {
   const path = request.nextUrl.pathname;
   const isAuthenticated = request.cookies.has('auth');
 
-  // Allow webhook / agent authentication via x-muse-secret or Bearer token
+  // Allow webhook / agent / cron authentication via x-muse-secret or Bearer token
   const configuredSecret =
     process.env.MUSE_BRIDGE_SECRET ||
     process.env.MUSE_WEBHOOK_SECRET ||
     'kodekiri_muse_secret_key';
+  const cronSecret = process.env.CRON_SECRET;
   const providedSecret =
     request.headers.get('x-muse-secret') ||
     request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
-  const isAgentAuthorized = Boolean(providedSecret && safeCompareSecret(providedSecret, configuredSecret));
+  const isAgentAuthorized = Boolean(
+    providedSecret && (
+      safeCompareSecret(providedSecret, configuredSecret) ||
+      (cronSecret && safeCompareSecret(providedSecret, cronSecret))
+    )
+  );
 
   const isProtectedApi = PROTECTED_API_PATHS.some(
     (prefix) => path === prefix || path.startsWith(`${prefix}/`)

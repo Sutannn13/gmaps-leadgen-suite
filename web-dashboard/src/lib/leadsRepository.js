@@ -222,20 +222,32 @@ async function readLocalStore() {
 
 async function writeLocalStore(leads = []) {
   const filePath = getLocalLeadsStorePath();
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(
-    filePath,
-    JSON.stringify(
-      {
-        version: 'real-tapos-v2',
-        updatedAt: new Date().toISOString(),
-        leads,
-      },
-      null,
-      2
-    ),
-    'utf8'
+  const content = JSON.stringify(
+    {
+      version: 'real-tapos-v2',
+      updatedAt: new Date().toISOString(),
+      leads,
+    },
+    null,
+    2
   );
+
+  try {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, content, 'utf8');
+  } catch (err) {
+    if (err.code === 'EROFS' || err.code === 'EACCES') {
+      try {
+        const tmpPath = path.join('/tmp', 'leads-store.json');
+        await fs.mkdir(path.dirname(tmpPath), { recursive: true });
+        await fs.writeFile(tmpPath, content, 'utf8');
+      } catch {
+        // Fallback silent when Neon DB is primary persistence
+      }
+    } else {
+      console.warn('Could not write local store:', err?.message);
+    }
+  }
   return leads;
 }
 

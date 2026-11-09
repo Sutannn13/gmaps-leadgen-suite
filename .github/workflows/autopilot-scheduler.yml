@@ -1,0 +1,38 @@
+name: Autopilot Outreach Scheduler
+
+on:
+  schedule:
+    # Berjalan tiap 15 menit antara 00:00 - 06:00 UTC (07:00 - 13:00 WIB Asia/Jakarta)
+    - cron: '*/15 0-6 * * *'
+  workflow_dispatch:
+
+jobs:
+  tick:
+    name: Autopilot Tick
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Dashboard Autopilot Tick
+        env:
+          APP_URL: ${{ secrets.VERCEL_APP_URL || 'https://kodekiri.tech' }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET || secrets.MUSE_BRIDGE_SECRET || 'kodekiri_muse_secret_key' }}
+        run: |
+          echo "Triggering Autopilot Tick at $APP_URL..."
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "$APP_URL/api/automation/tick" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json")
+
+          STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d':' -f2)
+          BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
+
+          echo "HTTP Status: $STATUS"
+          echo "Response: $BODY"
+
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 300 ]; then
+            echo "Autopilot tick completed successfully."
+          else
+            echo "Autopilot tick returned status: $STATUS"
+            if [ "$STATUS" -ge 500 ]; then
+              exit 1
+            fi
+          fi
+

@@ -13,6 +13,8 @@ import {
   verifyWebsiteTarget,
 } from '@/lib/leadQualification';
 
+export const maxDuration = 60;
+
 function getScrapePaths() {
   const repoRoot = path.resolve(process.cwd(), '..');
   const agentsDir = path.join(repoRoot, '.agents');
@@ -20,6 +22,7 @@ function getScrapePaths() {
     agentsDir,
     queuePath: path.join(agentsDir, 'muse-scrape-queue.json'),
     scrapedLeadsPath: path.join(agentsDir, 'muse-scraped-leads.json'),
+    tmpQueuePath: path.join('/tmp', 'muse-scrape-queue.json'),
   };
 }
 
@@ -129,27 +132,35 @@ export async function POST(request) {
     const jobId = `scrape_${Date.now()}`;
     const requestedAt = new Date().toISOString();
 
-    await fs.writeFile(
-      queuePath,
-      JSON.stringify(
-        {
-          jobId,
-          targetQuery,
-          geoScope: requestedGeoScope,
-          onlyNoWebsite: false,
-          requestedAt,
-          outputFile: scrapedLeadsPath,
-        },
-        null,
-        2
-      ),
-      'utf8'
+    const queuePayload = JSON.stringify(
+      {
+        jobId,
+        targetQuery,
+        geoScope: requestedGeoScope,
+        onlyNoWebsite: false,
+        requestedAt,
+        outputFile: scrapedLeadsPath,
+      },
+      null,
+      2
     );
+
+    try {
+      await fs.writeFile(queuePath, queuePayload, 'utf8');
+    } catch (err) {
+      if (err.code === 'EROFS' || err.code === 'EACCES') {
+        try {
+          await fs.writeFile(tmpQueuePath, queuePayload, 'utf8');
+        } catch {
+          // Ignore fallback write error on serverless
+        }
+      }
+    }
 
     let candidates = [];
     let summary = null;
     try {
-      const diskRaw = await fs.readFile(scrapedLeadsPath, 'utf8');
+      const diskRaw = await fs.readFile(/*turbopackIgnore: true*/ scrapedLeadsPath, 'utf8');
       const parsed = JSON.parse(diskRaw);
       if (parsed?.summary) summary = parsed.summary;
       if (Array.isArray(parsed?.leads) && parsed.leads.length > 0) {
