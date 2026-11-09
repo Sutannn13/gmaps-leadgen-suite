@@ -1,6 +1,4 @@
 import { NextResponse } from 'next/server';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import {
   DEFAULT_START_HOUR_WIB,
   DEFAULT_END_HOUR_WIB,
@@ -8,57 +6,15 @@ import {
   isWithinOperatingWindow,
   classifyIncomingClientReply,
 } from '@/lib/automationEngine';
-
-function getAutopilotPaths() {
-  const repoRoot = path.resolve(process.cwd(), '..');
-  const agentsDir = path.join(repoRoot, '.agents');
-  return {
-    agentsDir,
-    statePath: path.join(agentsDir, 'autopilot-state.json'),
-  };
-}
-
-const DEFAULT_AUTOPILOT_STATE = {
-  enabled: false,
-  startHourWib: DEFAULT_START_HOUR_WIB,
-  endHourWib: DEFAULT_END_HOUR_WIB,
-  maxDailyQuota: DEFAULT_MAX_DAILY_QUOTA,
-  sentTodayCount: 0,
-  sentDateKey: '',
-  targetQuery: 'Sablon Kaos Depok, Konveksi Kabupaten Bogor, Bengkel Mobil Cibinong',
-  waBridgeStatus: 'READY', // 'READY' | 'STANDBY' | 'NEEDS_QR'
-  currentAction: 'Menunggu tombol "Otomatisasikan Calon Client" diaktifkan.',
-  lastTriggeredAt: null,
-  updatedAt: null,
-  activityLogs: [],
-};
-
-async function readAutopilotState(statePath) {
-  try {
-    const raw = await fs.readFile(statePath, 'utf8');
-    const parsed = JSON.parse(raw);
-    return {
-      ...DEFAULT_AUTOPILOT_STATE,
-      ...(parsed && typeof parsed === 'object' ? parsed : {}),
-      activityLogs: Array.isArray(parsed?.activityLogs)
-        ? parsed.activityLogs.slice(0, 30)
-        : [],
-    };
-  } catch {
-    return { ...DEFAULT_AUTOPILOT_STATE };
-  }
-}
-
-async function writeAutopilotState(statePath, nextState) {
-  await fs.mkdir(path.dirname(statePath), { recursive: true });
-  await fs.writeFile(statePath, JSON.stringify(nextState, null, 2), 'utf8');
-  return nextState;
-}
+import {
+  DEFAULT_AUTOPILOT_STATE,
+  readAutopilotStateFromStore,
+  saveAutopilotStateToStore,
+} from '@/lib/autopilotStore';
 
 export async function GET() {
   try {
-    const { statePath } = getAutopilotPaths();
-    const state = await readAutopilotState(statePath);
+    const state = await readAutopilotStateFromStore();
     const windowCheck = isWithinOperatingWindow(
       new Date(),
       state.startHourWib,
@@ -87,8 +43,7 @@ export async function POST(request) {
   try {
     const body = await request.json();
     const action = String(body?.action || 'TOGGLE').toUpperCase().trim();
-    const { statePath } = getAutopilotPaths();
-    const current = await readAutopilotState(statePath);
+    const current = await readAutopilotStateFromStore();
     const nowIso = new Date().toISOString();
     const windowCheck = isWithinOperatingWindow(
       new Date(),
@@ -108,7 +63,7 @@ export async function POST(request) {
     ].slice(0, 30);
 
     if (action === 'RESET') {
-      const resetState = await writeAutopilotState(statePath, {
+      const resetState = await saveAutopilotStateToStore({
         ...DEFAULT_AUTOPILOT_STATE,
         targetQuery: current.targetQuery || DEFAULT_AUTOPILOT_STATE.targetQuery,
         maxDailyQuota: current.maxDailyQuota || DEFAULT_MAX_DAILY_QUOTA,
@@ -144,7 +99,7 @@ export async function POST(request) {
           : `Autopilot DIJADWALKAN AKTIF. Saat ini di luar jam kerja (${windowCheck.formattedTime}), VM Muse.ai otomatis mulai berjalan pukul 07:00 WIB.`
         : 'Autopilot DINONAKTIFKAN. Seluruh proses scraping & balasan WA otomatis dihentikan.';
 
-      const nextState = await writeAutopilotState(statePath, {
+      const nextState = await saveAutopilotStateToStore({
         ...current,
         enabled: nextEnabled,
         targetQuery: String(body?.targetQuery ?? current.targetQuery).trim() || current.targetQuery,
@@ -169,7 +124,7 @@ export async function POST(request) {
         Math.min(100, Number(body?.maxDailyQuota || current.maxDailyQuota) || DEFAULT_MAX_DAILY_QUOTA)
       );
 
-      const nextState = await writeAutopilotState(statePath, {
+      const nextState = await saveAutopilotStateToStore({
         ...current,
         targetQuery: nextTarget,
         maxDailyQuota: nextQuota,
@@ -195,7 +150,7 @@ export async function POST(request) {
       const classification = classifyIncomingClientReply(replyText, currentStage);
       const logLine = `[Tektokan WA - ${leadName}] Klien membalas: "${replyText}" -> ${classification.actionSummary}`;
 
-      const nextState = await writeAutopilotState(statePath, {
+      const nextState = await saveAutopilotStateToStore({
         ...current,
         currentAction: logLine,
         updatedAt: nowIso,
@@ -222,7 +177,7 @@ export async function POST(request) {
           ? 0
           : current.sentTodayCount || 0;
 
-      const nextState = await writeAutopilotState(statePath, {
+      const nextState = await saveAutopilotStateToStore({
         ...current,
         sentDateKey: windowCheck.dateKey,
         sentTodayCount: incSent ? baseTodayCount + 1 : baseTodayCount,

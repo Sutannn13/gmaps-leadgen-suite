@@ -8,6 +8,12 @@ import {
   normalizePhoneKey,
   mapMuseScrapedRecordToLead,
 } from '@/lib/leadsRepository';
+import {
+  evaluateGeographicEligibility,
+  verifyWebsiteTarget,
+} from '@/lib/leadQualification';
+
+export const maxDuration = 60;
 
 function getScrapePaths() {
   const repoRoot = path.resolve(process.cwd(), '..');
@@ -16,6 +22,7 @@ function getScrapePaths() {
     agentsDir,
     queuePath: path.join(agentsDir, 'muse-scrape-queue.json'),
     scrapedLeadsPath: path.join(agentsDir, 'muse-scraped-leads.json'),
+    tmpQueuePath: path.join('/tmp', 'muse-scrape-queue.json'),
   };
 }
 
@@ -72,13 +79,7 @@ async function tryLiveOsmNominatimScrape(rawQuery) {
               .trim() || q,
           phone: phoneRaw,
           website: isSocialOnly ? '' : existingWeb,
-          websiteStatus: existingWeb
-            ? isSocialOnly
-              ? 'social_only'
-              : 'has_website'
-            : extratags['contact:instagram']
-              ? 'social_only'
-              : 'no_website',
+          websiteStatus: isSocialOnly ? 'social_only' : '',
           socialMedia: isSocialOnly ? existingWeb : extratags['contact:instagram'] || '',
           onlineShop: '',
           rating: '',
@@ -99,8 +100,22 @@ async function tryLiveOsmNominatimScrape(rawQuery) {
 
 export async function POST(request) {
   try {
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const targetQuery = String(body?.targetQuery || 'Kecamatan Tapos, Kota Depok').trim();
+    const requestedGeoScope = body?.geoScope || {
+      type: 'AUTO_DETECT',
+      preferredRegencies: [
+        'Kota Depok',
+        'Kota Bogor',
+        'Kabupaten Bogor',
+        'Kota Bekasi',
+        'Kabupaten Bekasi',
+        'Kota Tangerang',
+        'Kota Tangerang Selatan',
+        'Kabupaten Tangerang',
+        'DKI Jakarta',
+      ],
+    };
 
     const { agentsDir, queuePath, scrapedLeadsPath } = getScrapePaths();
     await fs.mkdir(agentsDir, { recursive: true });
@@ -117,26 +132,35 @@ export async function POST(request) {
     const jobId = `scrape_${Date.now()}`;
     const requestedAt = new Date().toISOString();
 
-    await fs.writeFile(
-      queuePath,
-      JSON.stringify(
-        {
-          jobId,
-          targetQuery,
-          onlyNoWebsite: false,
-          requestedAt,
-          outputFile: scrapedLeadsPath,
-        },
-        null,
-        2
-      ),
-      'utf8'
+    const queuePayload = JSON.stringify(
+      {
+        jobId,
+        targetQuery,
+        geoScope: requestedGeoScope,
+        onlyNoWebsite: false,
+        requestedAt,
+        outputFile: scrapedLeadsPath,
+      },
+      null,
+      2
     );
+
+    try {
+      await fs.writeFile(queuePath, queuePayload, 'utf8');
+    } catch (err) {
+      if (err.code === 'EROFS' || err.code === 'EACCES') {
+        try {
+          await fs.writeFile(tmpQueuePath, queuePayload, 'utf8');
+        } catch {
+          // Ignore fallback write error on serverless
+        }
+      }
+    }
 
     let candidates = [];
     let summary = null;
     try {
-      const diskRaw = await fs.readFile(scrapedLeadsPath, 'utf8');
+      const diskRaw = await fs.readFile(/*turbopackIgnore: true*/ scrapedLeadsPath, 'utf8');
       const parsed = JSON.parse(diskRaw);
       if (parsed?.summary) summary = parsed.summary;
       if (Array.isArray(parsed?.leads) && parsed.leads.length > 0) {
@@ -149,7 +173,42 @@ export async function POST(request) {
     const osmLeads = await tryLiveOsmNominatimScrape(targetQuery);
     candidates.push(...osmLeads);
 
-    const mappedCandidates = candidates.map((item, idx) =>
+    // Deep-verify candidates & filter out-of-scope offline stores
+    const verifiedCandidates = [];
+    for (const item of candidates) {
+      if (!item?.name) continue;
+
+      // Verify website status for all owned URLs
+      if (item.website && !['social_only', 'free_builder'].includes(item.websiteStatus)) {
+        const v = await verifyWebsiteTarget(item.website);
+        if (v.status === 'social_only') {
+          if (v.platform === 'marketplace') item.onlineShop = item.onlineShop || item.website;
+          else item.socialMedia = item.socialMedia || item.website;
+          item.website = '';
+          item.websiteStatus = 'social_only';
+        } else {
+          item.websiteStatus = v.status;
+          if (v.isDead) {
+            item.deadWebsiteUrl = item.website;
+            item.website = '';
+          }
+        }
+      }
+
+      // Check geographic eligibility
+      const geo = evaluateGeographicEligibility(item);
+      item.geoScope = geo.scope;
+      item.language = geo.language;
+
+      // Skip offline physical stores outside Jabodetabek (requires face-to-face trust)
+      if (geo.eligible === false && geo.scope === 'OUTSIDE_OFFLINE_SCOPE') {
+        continue;
+      }
+
+      verifiedCandidates.push(item);
+    }
+
+    const mappedCandidates = verifiedCandidates.map((item, idx) =>
       mapMuseScrapedRecordToLead(item, idx, requestedAt)
     );
 

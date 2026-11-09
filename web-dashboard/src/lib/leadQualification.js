@@ -153,13 +153,398 @@ export function classifyWebsiteUrl(rawUrl) {
 }
 
 export function hasMobileWhatsAppNumber(phone, whatsapp) {
-  const candidate = String(whatsapp || phone || '').replace(/[^\d]/g, '');
+  const raw = String(whatsapp || phone || '').trim();
+  const candidate = raw.replace(/[^\d]/g, '');
   if (!candidate) return false;
+
+  // International numbers (e.g. +61, +65, +1, +44)
+  if (raw.startsWith('+') && !raw.startsWith('+62')) {
+    return candidate.length >= 8;
+  }
+
   return (
     candidate.startsWith('08') ||
     candidate.startsWith('628') ||
     (candidate.startsWith('8') && candidate.length >= 9)
   );
+}
+
+// Regex for Jabodetabek (Jakarta, Bogor, Depok, Tangerang, Bekasi & major sub-districts)
+const JABODETABEK_PATTERN =
+  /\b(?:jakarta|dki|depok|bogor|tangerang|tangsel|bekasi|cibinong|cileungsi|bojong\s*gede|gunung\s*putri|parung|sawangan|tapos|cimanggis|beji|sukmajaya|cinere|ciputat|pamulang|serpong|bsd|bintaro|cikarang|tambun)\b/i;
+
+const OFFLINE_STORE_CATEGORY_PATTERN =
+  /\b(?:bengkel|salon|barber|barbershop|toko\s*bangunan|material|klinik|dokter|apotek|cuci\s*mobil|cuci\s*motor|steam|laundry|cafe|kafe|resto|restoran|warung|rumah\s*makan|kedai|mebel|furniture|interior|tambal\s*ban|las\s*karbit|las\s*listrik|service\s*hp|service\s*elektronik)\b/i;
+
+const OVERSEAS_PATTERN =
+  /\b(?:singapore|malaysia|australia|united\s*states|usa|united\s*kingdom|uk|japan|korea|germany|canada|netherlands|thailand|vietnam|philippines)\b/i;
+
+export function isJabodetabekAddress(address = '') {
+  return JABODETABEK_PATTERN.test(String(address || ''));
+}
+
+export function evaluateGeographicEligibility(lead = {}) {
+  const address = String(lead.address || '').trim();
+  const phone = String(lead.whatsapp || lead.phone || '').trim();
+  const category = String(lead.categoryName || lead.category || '').trim();
+
+  // 1. Detect international prospect
+  const isOverseasAddress = OVERSEAS_PATTERN.test(address);
+  const isOverseasPhone = phone.startsWith('+') && !phone.startsWith('+62');
+  if (isOverseasAddress || isOverseasPhone) {
+    return {
+      eligible: true,
+      scope: 'INTERNATIONAL',
+      language: 'en',
+      reason: 'Prospek internasional (komunikasi menggunakan standar English only).',
+    };
+  }
+
+  // 2. Offline physical stores require Jabodetabek localization for high-trust closing
+  const isOffline = OFFLINE_STORE_CATEGORY_PATTERN.test(category) || OFFLINE_STORE_CATEGORY_PATTERN.test(lead.name || '');
+  const inJabodetabek = isJabodetabekAddress(address);
+
+  if (isOffline && !inJabodetabek && address.length > 5) {
+    return {
+      eligible: false,
+      scope: 'OUTSIDE_OFFLINE_SCOPE',
+      language: 'id',
+      reason: 'Toko fisik di luar jangkauan Jabodetabek (membutuhkan asistensi tatap muka/trust lokal).',
+    };
+  }
+
+  if (inJabodetabek) {
+    return {
+      eligible: true,
+      scope: 'JABODETABEK',
+      language: 'id',
+      reason: 'Wilayah operasional prioritas Jabodetabek.',
+    };
+  }
+
+  // Deliverable businesses / national scale
+  return {
+    eligible: true,
+    scope: 'NATIONAL',
+    language: 'id',
+    reason: 'Layanan jasa/produk dengan jangkauan pengiriman nasional.',
+  };
+}
+
+export function isSafePublicHttpUrl(inputUrl) {
+  try {
+    const parsed = new URL(String(inputUrl || '').trim());
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+    const hostname = parsed.hostname.toLowerCase().trim();
+    if (!hostname || hostname.includes('..')) {
+      return false;
+    }
+
+    // Prohibit localhost and local names
+    if (
+      hostname === 'localhost' ||
+      hostname.endsWith('.localhost') ||
+      hostname.endsWith('.local') ||
+      hostname.endsWith('.internal') ||
+      hostname.endsWith('.arpa')
+    ) {
+      return false;
+    }
+
+    // Check IPv4 addresses
+    const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipv4Match) {
+      const octets = ipv4Match.slice(1, 5).map(Number);
+      if (octets.some((o) => o < 0 || o > 255)) return false;
+
+      // 0.0.0.0/8
+      if (octets[0] === 0) return false;
+      // 10.0.0.0/8 (Private network)
+      if (octets[0] === 10) return false;
+      // 127.0.0.0/8 (Loopback)
+      if (octets[0] === 127) return false;
+      // 100.64.0.0/10 (Carrier-grade NAT)
+      if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) return false;
+      // 169.254.0.0/16 (Link-local & Cloud metadata)
+      if (octets[0] === 169 && octets[1] === 254) return false;
+      // 172.16.0.0/12 (Private network: 172.16.0.0 - 172.31.255.255)
+      if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return false;
+      // 192.168.0.0/16 (Private network)
+      if (octets[0] === 192 && octets[1] === 168) return false;
+      // 224.0.0.0/4 & 240.0.0.0/4 (Multicast & Reserved)
+      if (octets[0] >= 224) return false;
+    }
+
+    // Prohibit IPv6 loopback / link-local / unique-local
+    if (
+      hostname === '[::1]' ||
+      hostname === '::1' ||
+      hostname.startsWith('[fe80:') ||
+      hostname.startsWith('[fc') ||
+      hostname.startsWith('[fd')
+    ) {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function normalizeWhatsAppTarget(rawNumber = '', geoScope = '') {
+  const clean = String(rawNumber || '').trim();
+  if (!clean) return '';
+
+  // Explicit international numbers with leading +
+  if (clean.startsWith('+')) {
+    const digits = clean.replace(/[^\d]/g, '');
+    return digits;
+  }
+
+  let digits = clean.replace(/[^\d]/g, '');
+  if (!digits) return '';
+
+  // Indonesian local formats
+  if (digits.startsWith('0')) {
+    return '62' + digits.slice(1);
+  }
+  if (digits.startsWith('62')) {
+    return digits;
+  }
+
+  // If already tagged international and has 8+ digits, preserve country code
+  if (geoScope === 'INTERNATIONAL' && digits.length >= 8) {
+    return digits;
+  }
+
+  // Indonesian 8-series shorthand
+  if (digits.startsWith('8') && digits.length >= 9) {
+    return '62' + digits;
+  }
+
+  return digits;
+}
+
+export async function verifyWebsiteTarget(rawUrl = '', options = {}) {
+  const clean = String(rawUrl || '').trim();
+  if (!clean || clean.length < 4 || !clean.includes('.')) {
+    return {
+      status: 'no_website',
+      hasWebsite: false,
+      isDead: false,
+      url: '',
+      platform: null,
+    };
+  }
+
+  const classified = classifyWebsiteUrl(clean);
+  if (classified === 'SOCIAL') {
+    let platform = 'social';
+    if (clean.includes('instagram.com') || clean.includes('instagr.am')) platform = 'instagram';
+    else if (clean.includes('tiktok.com')) platform = 'tiktok';
+    else if (clean.includes('linktr.ee') || clean.includes('bio.link')) platform = 'linktree';
+    return {
+      status: 'social_only',
+      hasWebsite: false,
+      isDead: false,
+      url: clean,
+      platform,
+    };
+  }
+
+  if (classified === 'MARKETPLACE') {
+    return {
+      status: 'social_only',
+      hasWebsite: false,
+      isDead: false,
+      url: clean,
+      platform: 'marketplace',
+    };
+  }
+
+  if (classified === 'FREE_BUILDER') {
+    return {
+      status: 'free_builder',
+      hasWebsite: false,
+      isDead: false,
+      url: clean,
+      platform: 'free_builder',
+    };
+  }
+
+  const fullUrl = clean.startsWith('http://') || clean.startsWith('https://') ? clean : `https://${clean}`;
+
+  // SSRF Protection: validate URL scheme and block private/link-local/cloud-metadata targets
+  if (!isSafePublicHttpUrl(fullUrl)) {
+    return {
+      status: 'no_website',
+      hasWebsite: false,
+      isDead: false,
+      url: clean,
+      platform: 'blocked_internal_target',
+    };
+  }
+
+  // Check owned domain validity via HTTP HEAD/GET
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (typeof fetchImpl !== 'function') {
+    return {
+      status: 'has_website',
+      hasWebsite: true,
+      isDead: false,
+      url: clean,
+      platform: 'owned_domain',
+    };
+  }
+
+  const timeoutMs = options.timeoutMs || 3500;
+  let headRes = null;
+  let shouldTryGet = false;
+
+  // Step 1: Attempt HEAD with independent controller and manual redirect to guard against SSRF
+  const headController = new AbortController();
+  const headTimer = setTimeout(() => headController.abort(), timeoutMs);
+
+  try {
+    headRes = await fetchImpl(fullUrl, {
+      method: 'HEAD',
+      headers: {
+        'User-Agent': 'KodeKiri-Verifier/1.0 (+https://kodekiri.tech)',
+      },
+      signal: headController.signal,
+      redirect: 'manual',
+    });
+
+    // 405 (Method Not Allowed), 501 (Not Implemented), or 403: Retry with GET
+    if (headRes && (headRes.status === 405 || headRes.status === 501 || headRes.status === 403)) {
+      shouldTryGet = true;
+    }
+  } catch {
+    shouldTryGet = true;
+  } finally {
+    clearTimeout(headTimer);
+  }
+
+  // Evaluate HEAD response if no GET needed
+  if (!shouldTryGet && headRes) {
+    // Handle redirect: verify destination against SSRF
+    if ([301, 302, 303, 307, 308].includes(headRes.status)) {
+      const loc = headRes.headers?.get?.('location');
+      if (loc) {
+        const dest = loc.startsWith('http') ? loc : new URL(loc, fullUrl).href;
+        if (!isSafePublicHttpUrl(dest)) {
+          return {
+            status: 'no_website',
+            hasWebsite: false,
+            isDead: false,
+            url: clean,
+            platform: 'blocked_redirect_target',
+          };
+        }
+      }
+      return {
+        status: 'has_website',
+        hasWebsite: true,
+        isDead: false,
+        url: clean,
+        statusCode: headRes.status,
+        platform: 'owned_domain',
+      };
+    }
+
+    if (headRes.status >= 200 && headRes.status < 400) {
+      return {
+        status: 'has_website',
+        hasWebsite: true,
+        isDead: false,
+        url: clean,
+        statusCode: headRes.status,
+        platform: 'owned_domain',
+      };
+    }
+
+    return {
+      status: 'website_dead',
+      hasWebsite: false,
+      isDead: true,
+      url: clean,
+      statusCode: headRes.status,
+      platform: 'owned_domain',
+    };
+  }
+
+  // Step 2: GET fallback with fresh controller & timeout
+  const getController = new AbortController();
+  const getTimer = setTimeout(() => getController.abort(), timeoutMs);
+
+  try {
+    const getRes = await fetchImpl(fullUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'KodeKiri-Verifier/1.0 (+https://kodekiri.tech)',
+      },
+      signal: getController.signal,
+      redirect: 'manual',
+    });
+
+    if (getRes && [301, 302, 303, 307, 308].includes(getRes.status)) {
+      const loc = getRes.headers?.get?.('location');
+      if (loc) {
+        const dest = loc.startsWith('http') ? loc : new URL(loc, fullUrl).href;
+        if (!isSafePublicHttpUrl(dest)) {
+          return {
+            status: 'no_website',
+            hasWebsite: false,
+            isDead: false,
+            url: clean,
+            platform: 'blocked_redirect_target',
+          };
+        }
+      }
+      return {
+        status: 'has_website',
+        hasWebsite: true,
+        isDead: false,
+        url: clean,
+        statusCode: getRes.status,
+        platform: 'owned_domain',
+      };
+    }
+
+    if (getRes && getRes.status >= 200 && getRes.status < 400) {
+      return {
+        status: 'has_website',
+        hasWebsite: true,
+        isDead: false,
+        url: clean,
+        statusCode: getRes.status,
+        platform: 'owned_domain',
+      };
+    }
+
+    return {
+      status: 'website_dead',
+      hasWebsite: false,
+      isDead: true,
+      url: clean,
+      statusCode: getRes?.status || null,
+      platform: 'owned_domain',
+    };
+  } catch {
+    return {
+      status: 'website_dead',
+      hasWebsite: false,
+      isDead: true,
+      url: clean,
+      statusCode: null,
+      platform: 'owned_domain',
+    };
+  } finally {
+    clearTimeout(getTimer);
+  }
 }
 
 export function evaluateLeadQualification(lead = {}) {

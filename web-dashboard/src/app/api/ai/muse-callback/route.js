@@ -31,8 +31,6 @@ export async function POST(request) {
     ).trim();
 
     const resultsPath = getResultsPath();
-    await fs.mkdir(path.dirname(resultsPath), { recursive: true });
-
     let existing = {};
     try {
       const raw = await fs.readFile(resultsPath, 'utf8');
@@ -60,7 +58,16 @@ export async function POST(request) {
       },
     };
 
-    await fs.writeFile(resultsPath, JSON.stringify(nextResults, null, 2), 'utf8');
+    try {
+      await fs.mkdir(path.dirname(resultsPath), { recursive: true });
+      await fs.writeFile(resultsPath, JSON.stringify(nextResults, null, 2), 'utf8');
+    } catch (err) {
+      if (err.code === 'EROFS' || err.code === 'EACCES') {
+        try {
+          await fs.writeFile(path.join('/tmp', 'muse-results.json'), JSON.stringify(nextResults, null, 2), 'utf8');
+        } catch {}
+      }
+    }
 
     return NextResponse.json({
       success: true,

@@ -215,12 +215,24 @@ export async function saveAiSettingsToDb(input = {}, { sqlImpl, secretOverride }
 
   if (!sqlImpl && !process.env.DATABASE_URL) {
     const filePath = getLocalSettingsFilePath();
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(
-      filePath,
-      JSON.stringify({ value: storedPayload, updatedAt }, null, 2),
-      'utf8'
-    );
+    try {
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(
+        filePath,
+        JSON.stringify({ value: storedPayload, updatedAt }, null, 2),
+        'utf8'
+      );
+    } catch (err) {
+      if (err.code === 'EROFS' || err.code === 'EACCES') {
+        try {
+          await fs.writeFile(
+            path.join('/tmp', 'ai-settings-local.json'),
+            JSON.stringify({ value: storedPayload, updatedAt }, null, 2),
+            'utf8'
+          );
+        } catch {}
+      }
+    }
   } else {
     const rows = await sql`
       INSERT INTO "AppSetting" (key, value, "updatedAt")

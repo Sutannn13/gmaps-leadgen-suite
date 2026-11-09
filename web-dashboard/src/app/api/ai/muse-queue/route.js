@@ -64,21 +64,16 @@ export async function POST(request) {
     }
 
     const { agentsDir, briefPath, resultsPath } = getAgentsPaths();
-    await fs.mkdir(agentsDir, { recursive: true });
-
-    const jobId = `job_${Date.now()}`;
-    const createdAt = new Date().toISOString();
-
-    const briefContent = `# Brief Mockup Terbaru — ${leadName}
-Job ID: ${jobId}
-Lead ID: ${leadId}
-Lead Name: ${leadName}
-Created At: ${createdAt}
-Output Target File: D:\\DATA SUTAN ARLIE JOHAN\\Code Johan\\mapscrapping\\.agents\\muse-results.json
-
-${prompt}
-`;
-    await fs.writeFile(briefPath, briefContent, 'utf8');
+    try {
+      await fs.mkdir(agentsDir, { recursive: true });
+      await fs.writeFile(briefPath, briefContent, 'utf8');
+    } catch (err) {
+      if (err.code === 'EROFS' || err.code === 'EACCES') {
+        try {
+          await fs.writeFile(path.join('/tmp', 'muse-brief-latest.md'), briefContent, 'utf8');
+        } catch {}
+      }
+    }
 
     const existingResults = await readResultsMap(resultsPath);
     const pendingRecord = {
@@ -99,7 +94,16 @@ ${prompt}
         [leadId]: pendingRecord,
       },
     };
-    await fs.writeFile(resultsPath, JSON.stringify(nextResults, null, 2), 'utf8');
+
+    try {
+      await fs.writeFile(resultsPath, JSON.stringify(nextResults, null, 2), 'utf8');
+    } catch (err) {
+      if (err.code === 'EROFS' || err.code === 'EACCES') {
+        try {
+          await fs.writeFile(path.join('/tmp', 'muse-results.json'), JSON.stringify(nextResults, null, 2), 'utf8');
+        } catch {}
+      }
+    }
 
     return NextResponse.json({
       success: true,

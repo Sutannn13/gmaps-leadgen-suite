@@ -1,6 +1,6 @@
 // Rationale: Deterministic state machine & time-window controller for the "Otomatisasikan Calon Client" (07:00-13:00 WIB) autonomous pipeline.
 
-import { evaluateLeadQualification } from './leadQualification.js';
+import { evaluateLeadQualification, evaluateGeographicEligibility } from './leadQualification.js';
 import {
   DEFAULT_AI_SETTINGS,
   extractBusinessIdentity,
@@ -280,6 +280,11 @@ export function filterEligibleAutopilotLeads(leads = [], maxDailyQuota = DEFAULT
     if (!lead) continue;
     const evaluation = evaluateLeadQualification(lead);
     if (evaluation.status !== 'WORTH_PROSPECTING' || !evaluation.hasMobileWa) {
+      continue;
+    }
+
+    const geo = evaluateGeographicEligibility(lead);
+    if (geo.eligible === false) {
       continue;
     }
 

@@ -1,9 +1,9 @@
 # AGENTS.md — GMaps LeadGen Suite & Bridge Muse.ai (`Tim Developer KodeKiri`)
 
 Repositori ini adalah monorepo **GMaps LeadGen Suite** milik **Tim Developer KodeKiri (`https://kodekiri.tech`)** yang terdiri dari:
-1. `extension/` — Chrome Extension untuk scraping prospek bisnis lokal dari Google Maps.
-2. `web-dashboard/` — Dashboard Next.js 16 + Neon PostgreSQL + Multi-Provider AI (DeepSeek & OpenRouter Free) + Bridge Mockup `muse.ai`.
-3. `.agents/` — Konteks Produk Marketing (`.agents/product-marketing.md`) dan 16 paket Agent Skills di `.agents/skills/`.
+1. `web-dashboard/` — Dashboard Next.js 16 + Neon PostgreSQL + Multi-Provider AI (DeepSeek & OpenRouter Free) + Bridge Mockup & Scraping Otonom `muse.ai`.
+2. `.agents/` — Konteks Produk Marketing (`.agents/product-marketing.md`), runner scraping otonom (`.agents/muse-scrape-runner.md`), dan 16 paket Agent Skills di `.agents/skills/`.
+3. `.archive/extension/` — Arsip Chrome Extension historis (sekarang digantikan penuh oleh pipeline otonom Muse.ai).
 
 ---
 

@@ -4,6 +4,11 @@ import {
   classifyWebsiteUrl,
   evaluateLeadQualification,
   groupDeleteRecommendations,
+  isJabodetabekAddress,
+  evaluateGeographicEligibility,
+  verifyWebsiteTarget,
+  isSafePublicHttpUrl,
+  normalizeWhatsAppTarget,
 } from './leadQualification.js';
 
 test('classifyWebsiteUrl separates owned domains from bio-links, marketplaces, free builders, and aggregators', () => {
@@ -14,6 +19,119 @@ test('classifyWebsiteUrl separates owned domains from bio-links, marketplaces, f
   assert.equal(classifyWebsiteUrl('https://katalogku.my.canva.site'), 'FREE_BUILDER');
   assert.equal(classifyWebsiteUrl('https://www.traveloka.com/id-id/hotel/detail'), 'AGGREGATOR');
   assert.equal(classifyWebsiteUrl('https://kopisenja.co.id'), 'OWNED_DOMAIN');
+});
+
+test('isJabodetabekAddress accurately recognizes Jabodetabek regencies and rejects others', () => {
+  assert.equal(isJabodetabekAddress('Jl. Raya Tapos No. 12, Kota Depok, Jawa Barat'), true);
+  assert.equal(isJabodetabekAddress('Ruko Boulevard Bintaro Jaya, Tangerang Selatan'), true);
+  assert.equal(isJabodetabekAddress('Jl. Pajajaran No. 45, Kota Bogor'), true);
+  assert.equal(isJabodetabekAddress('Jl. Ahmad Yani, Bekasi Barat, Kota Bekasi'), true);
+  assert.equal(isJabodetabekAddress('Jl. Malioboro No. 5, Kota Yogyakarta'), false);
+  assert.equal(isJabodetabekAddress('Jl. Tunjungan No. 10, Surabaya'), false);
+});
+
+test('evaluateGeographicEligibility locks offline stores to Jabodetabek and allows deliverable/international leads with English', () => {
+  // Offline store in Jabodetabek -> eligible, Indonesian
+  const localShop = evaluateGeographicEligibility({
+    name: 'Bengkel Motor Berkah Jaya',
+    categoryName: 'Bengkel Motor',
+    address: 'Jl. Raya Sawangan No. 8, Kota Depok',
+  });
+  assert.equal(localShop.eligible, true);
+  assert.equal(localShop.scope, 'JABODETABEK');
+  assert.equal(localShop.language, 'id');
+
+  // Offline store outside Jabodetabek -> disqualified for face-to-face trust requirement
+  const distantOfflineShop = evaluateGeographicEligibility({
+    name: 'Bengkel Las Mandiri',
+    categoryName: 'Bengkel Las & Bubut',
+    address: 'Jl. Pemuda No. 12, Semarang, Jawa Tengah',
+  });
+  assert.equal(distantOfflineShop.eligible, false);
+  assert.equal(distantOfflineShop.scope, 'OUTSIDE_OFFLINE_SCOPE');
+
+  // Deliverable / national scope (Konveksi, Sablon) outside Jabodetabek -> eligible
+  const deliverableShop = evaluateGeographicEligibility({
+    name: 'Konveksi Kaos Bandung Juara',
+    categoryName: 'Konveksi Kaos & Sablon',
+    address: 'Jl. Supratman No. 20, Bandung',
+  });
+  assert.equal(deliverableShop.eligible, true);
+  assert.equal(deliverableShop.scope, 'NATIONAL');
+  assert.equal(deliverableShop.language, 'id');
+
+  // International prospect -> eligible with English only
+  const overseasLead = evaluateGeographicEligibility({
+    name: 'Singa Apparel Sourcing',
+    categoryName: 'Apparel Wholesaler',
+    address: '10 Bayfront Ave, Singapore',
+    phone: '+6591234567',
+  });
+  assert.equal(overseasLead.eligible, true);
+  assert.equal(overseasLead.scope, 'INTERNATIONAL');
+  assert.equal(overseasLead.language, 'en');
+});
+
+test('verifyWebsiteTarget identifies dead websites, social-only, and active owned sites', async () => {
+  // Empty url
+  const empty = await verifyWebsiteTarget('');
+  assert.equal(empty.status, 'no_website');
+  assert.equal(empty.hasWebsite, false);
+
+  // Social only
+  const social = await verifyWebsiteTarget('https://www.instagram.com/tokosablon');
+  assert.equal(social.status, 'social_only');
+  assert.equal(social.hasWebsite, false);
+
+  // Dead website (mock fetch 404/network error)
+  const deadFetch = async () => ({ ok: false, status: 404 });
+  const deadWeb = await verifyWebsiteTarget('https://domain-mati-12345.com', { fetchImpl: deadFetch });
+  assert.equal(deadWeb.status, 'website_dead');
+  assert.equal(deadWeb.hasWebsite, false);
+  assert.equal(deadWeb.isDead, true);
+
+  // Active owned website (mock fetch 200)
+  const activeFetch = async () => ({ ok: true, status: 200 });
+  const activeWeb = await verifyWebsiteTarget('https://perusahaan-aktif.co.id', { fetchImpl: activeFetch });
+  assert.equal(activeWeb.status, 'has_website');
+  assert.equal(activeWeb.hasWebsite, true);
+  assert.equal(activeWeb.isDead, false);
+
+  // SSRF Protection: Blocks localhost, loopback, private IPs, and cloud metadata
+  assert.equal(isSafePublicHttpUrl('http://127.0.0.1:8080/admin'), false);
+  assert.equal(isSafePublicHttpUrl('http://localhost:3000'), false);
+  assert.equal(isSafePublicHttpUrl('http://169.254.169.254/latest/meta-data/'), false);
+  assert.equal(isSafePublicHttpUrl('http://10.0.0.1'), false);
+  assert.equal(isSafePublicHttpUrl('http://192.168.1.100'), false);
+  assert.equal(isSafePublicHttpUrl('https://validstore.com'), true);
+
+  const ssrfAttempt = await verifyWebsiteTarget('http://169.254.169.254/latest/meta-data/', { fetchImpl: activeFetch });
+  assert.equal(ssrfAttempt.status, 'no_website');
+  assert.equal(ssrfAttempt.platform, 'blocked_internal_target');
+
+  // HEAD 405/501 fallback to GET
+  const head405Fetch = async (url, opts) => {
+    if (opts?.method === 'HEAD') return { ok: false, status: 405 };
+    return { ok: true, status: 200 };
+  };
+  const getFallbackWeb = await verifyWebsiteTarget('https://strict-server.com', { fetchImpl: head405Fetch });
+  assert.equal(getFallbackWeb.status, 'has_website');
+  assert.equal(getFallbackWeb.hasWebsite, true);
+});
+
+test('normalizeWhatsAppTarget preserves international country codes and handles Indonesian numbers', () => {
+  // International with leading +
+  assert.equal(normalizeWhatsAppTarget('+61 412 345 678'), '61412345678');
+  assert.equal(normalizeWhatsAppTarget('+65 9123 4567'), '6591234567');
+  assert.equal(normalizeWhatsAppTarget('+1 (202) 555-0123'), '12025550123');
+
+  // Indonesian with +62 or 08
+  assert.equal(normalizeWhatsAppTarget('+62 812-3456-7890'), '6281234567890');
+  assert.equal(normalizeWhatsAppTarget('0812-3456-7890'), '6281234567890');
+  assert.equal(normalizeWhatsAppTarget('81234567890'), '6281234567890');
+
+  // International without + but tagged as INTERNATIONAL geoScope
+  assert.equal(normalizeWhatsAppTarget('61412345678', 'INTERNATIONAL'), '61412345678');
 });
 
 test('evaluateLeadQualification marks owned websites, closed businesses, franchises, and contact-less leads for deletion', () => {
