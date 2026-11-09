@@ -1,9 +1,19 @@
 import { NextResponse } from 'next/server';
+import crypto from 'node:crypto';
+
+function safeCompareSecret(provided, configured) {
+  if (typeof provided !== 'string' || typeof configured !== 'string') return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(configured);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
 
 const PROTECTED_API_PATHS = [
   '/api/delete',
   '/api/delete-all',
   '/api/delete-batch',
+  '/api/import',
   '/api/leads/ai',
   '/api/leads/chat-status',
   '/api/ai/deepseek',
@@ -20,12 +30,22 @@ export function middleware(request) {
   const path = request.nextUrl.pathname;
   const isAuthenticated = request.cookies.has('auth');
 
+  // Allow webhook / agent authentication via x-muse-secret or Bearer token
+  const configuredSecret =
+    process.env.MUSE_BRIDGE_SECRET ||
+    process.env.MUSE_WEBHOOK_SECRET ||
+    'kodekiri_muse_secret_key';
+  const providedSecret =
+    request.headers.get('x-muse-secret') ||
+    request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+  const isAgentAuthorized = Boolean(providedSecret && safeCompareSecret(providedSecret, configuredSecret));
+
   const isProtectedApi = PROTECTED_API_PATHS.some(
     (prefix) => path === prefix || path.startsWith(`${prefix}/`)
   );
-  if (isProtectedApi && !isAuthenticated) {
+  if (isProtectedApi && !isAuthenticated && !isAgentAuthorized) {
     return NextResponse.json(
-      { success: false, error: 'Sesi berakhir. Silakan login kembali.' },
+      { success: false, error: 'Autentikasi diperlukan. Sertakan cookie login atau header x-muse-secret.' },
       { status: 401 }
     );
   }

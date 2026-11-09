@@ -7,6 +7,8 @@ import {
   isJabodetabekAddress,
   evaluateGeographicEligibility,
   verifyWebsiteTarget,
+  isSafePublicHttpUrl,
+  normalizeWhatsAppTarget,
 } from './leadQualification.js';
 
 test('classifyWebsiteUrl separates owned domains from bio-links, marketplaces, free builders, and aggregators', () => {
@@ -94,6 +96,42 @@ test('verifyWebsiteTarget identifies dead websites, social-only, and active owne
   assert.equal(activeWeb.status, 'has_website');
   assert.equal(activeWeb.hasWebsite, true);
   assert.equal(activeWeb.isDead, false);
+
+  // SSRF Protection: Blocks localhost, loopback, private IPs, and cloud metadata
+  assert.equal(isSafePublicHttpUrl('http://127.0.0.1:8080/admin'), false);
+  assert.equal(isSafePublicHttpUrl('http://localhost:3000'), false);
+  assert.equal(isSafePublicHttpUrl('http://169.254.169.254/latest/meta-data/'), false);
+  assert.equal(isSafePublicHttpUrl('http://10.0.0.1'), false);
+  assert.equal(isSafePublicHttpUrl('http://192.168.1.100'), false);
+  assert.equal(isSafePublicHttpUrl('https://validstore.com'), true);
+
+  const ssrfAttempt = await verifyWebsiteTarget('http://169.254.169.254/latest/meta-data/', { fetchImpl: activeFetch });
+  assert.equal(ssrfAttempt.status, 'no_website');
+  assert.equal(ssrfAttempt.platform, 'blocked_internal_target');
+
+  // HEAD 405/501 fallback to GET
+  const head405Fetch = async (url, opts) => {
+    if (opts?.method === 'HEAD') return { ok: false, status: 405 };
+    return { ok: true, status: 200 };
+  };
+  const getFallbackWeb = await verifyWebsiteTarget('https://strict-server.com', { fetchImpl: head405Fetch });
+  assert.equal(getFallbackWeb.status, 'has_website');
+  assert.equal(getFallbackWeb.hasWebsite, true);
+});
+
+test('normalizeWhatsAppTarget preserves international country codes and handles Indonesian numbers', () => {
+  // International with leading +
+  assert.equal(normalizeWhatsAppTarget('+61 412 345 678'), '61412345678');
+  assert.equal(normalizeWhatsAppTarget('+65 9123 4567'), '6591234567');
+  assert.equal(normalizeWhatsAppTarget('+1 (202) 555-0123'), '12025550123');
+
+  // Indonesian with +62 or 08
+  assert.equal(normalizeWhatsAppTarget('+62 812-3456-7890'), '6281234567890');
+  assert.equal(normalizeWhatsAppTarget('0812-3456-7890'), '6281234567890');
+  assert.equal(normalizeWhatsAppTarget('81234567890'), '6281234567890');
+
+  // International without + but tagged as INTERNATIONAL geoScope
+  assert.equal(normalizeWhatsAppTarget('61412345678', 'INTERNATIONAL'), '61412345678');
 });
 
 test('evaluateLeadQualification marks owned websites, closed businesses, franchises, and contact-less leads for deletion', () => {

@@ -76,13 +76,7 @@ async function tryLiveOsmNominatimScrape(rawQuery) {
               .trim() || q,
           phone: phoneRaw,
           website: isSocialOnly ? '' : existingWeb,
-          websiteStatus: existingWeb
-            ? isSocialOnly
-              ? 'social_only'
-              : 'has_website'
-            : extratags['contact:instagram']
-              ? 'social_only'
-              : 'no_website',
+          websiteStatus: isSocialOnly ? 'social_only' : '',
           socialMedia: isSocialOnly ? existingWeb : extratags['contact:instagram'] || '',
           onlineShop: '',
           rating: '',
@@ -173,12 +167,20 @@ export async function POST(request) {
     for (const item of candidates) {
       if (!item?.name) continue;
 
-      // Verify website status if unknown
-      if (item.website && !item.websiteStatus) {
+      // Verify website status for all owned URLs
+      if (item.website && !['social_only', 'free_builder'].includes(item.websiteStatus)) {
         const v = await verifyWebsiteTarget(item.website);
-        item.websiteStatus = v.status;
-        if (v.isDead) {
-          item.deadWebsiteUrl = item.website;
+        if (v.status === 'social_only') {
+          if (v.platform === 'marketplace') item.onlineShop = item.onlineShop || item.website;
+          else item.socialMedia = item.socialMedia || item.website;
+          item.website = '';
+          item.websiteStatus = 'social_only';
+        } else {
+          item.websiteStatus = v.status;
+          if (v.isDead) {
+            item.deadWebsiteUrl = item.website;
+            item.website = '';
+          }
         }
       }
 

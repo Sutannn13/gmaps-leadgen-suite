@@ -154,11 +154,18 @@ export default function DashboardClient({
   });
   const bulkAbortRef = useRef(null);
 
-  const normalizeWa = useCallback((phone) => {
+  const normalizeWa = useCallback((phone, geoScope = '') => {
     if (!phone) return '';
-    let digits = String(phone).replace(/[^\d]/g, '');
-    if (digits.startsWith('0')) digits = '62' + digits.slice(1);
-    if (!digits.startsWith('62') && digits.length >= 8) digits = '62' + digits;
+    const clean = String(phone).trim();
+    if (clean.startsWith('+')) {
+      return clean.replace(/[^\d]/g, '');
+    }
+    let digits = clean.replace(/[^\d]/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('0')) return '62' + digits.slice(1);
+    if (digits.startsWith('62')) return digits;
+    if (geoScope === 'INTERNATIONAL' && digits.length >= 8) return digits;
+    if (digits.startsWith('8') && digits.length >= 9) return '62' + digits;
     return digits;
   }, []);
 
@@ -1833,7 +1840,7 @@ export default function DashboardClient({
                   evaluationById.get(key) || evaluateLeadQualification(lead);
                 const isAnalyzing = analyzingIds.includes(key);
                 const isDeleting = deletingIds.includes(key);
-                const waDigits = normalizeWa(lead.whatsapp || lead.phone);
+                const waDigits = normalizeWa(lead.whatsapp || lead.phone, lead.geoScope);
                 const qual = lead.aiResearch?.leadQualification || '';
                 const score = lead.aiResearch?.leadScore;
                 const qualStyle = getQualificationStyles(qual);
@@ -2070,7 +2077,7 @@ export default function DashboardClient({
                         evaluationById.get(key) || evaluateLeadQualification(lead);
                       const isAnalyzing = analyzingIds.includes(key);
                       const isDeleting = deletingIds.includes(key);
-                      const waDigits = normalizeWa(lead.whatsapp || lead.phone);
+                      const waDigits = normalizeWa(lead.whatsapp || lead.phone, lead.geoScope);
                       const qual = lead.aiResearch?.leadQualification || '';
                       const score = lead.aiResearch?.leadScore;
                       const qualStyle = getQualificationStyles(qual);

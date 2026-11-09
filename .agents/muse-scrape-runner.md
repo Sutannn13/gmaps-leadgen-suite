@@ -66,7 +66,7 @@ Setiap kandidat bisnis wajib diverifikasi melalui gerbang berikut:
 
 ### Formula Chat 1 Indonesia (Jabodetabek / Nasional):
 ```text
-Halo kak, salam kenal dari tim developer KodeKiri (kodekiri.tech).
+Halo kak, salam kenal dari tim developer KodeKiri.
 
 Kebetulan kami lihat review [Nama Toko] di [Kecamatan/Area] bagus dan ramai pelanggannya. Mau tanya kak, saat ini tokonya sudah ada web katalog sendiri atau pemesanan masih murni lewat WA & medsos aja?
 
@@ -77,7 +77,7 @@ Kalau belum ada dan kakak berkenan, tim kami mau buatkan gambaran tampilan web 1
 ```text
 Hi there, hope you're having a great week!
 
-Reaching out from the KodeKiri developer team (kodekiri.tech). We came across [Brand Name] and really loved your positive reviews and product quality. 
+Reaching out from the KodeKiri developer team. We came across [Brand Name] and wanted to learn more about your [specialty / business]. 
 
 Quick question: do you currently have a dedicated one-page portfolio or catalog website for direct inquiries, or are you primarily handling orders through social media and messaging?
 
@@ -88,7 +88,13 @@ If you'd be open to it, our team would love to build a quick, free preview of a 
 
 ## 5. Format Output Terstruktur JSON
 
-Kirimkan payload HTTP `POST` ke endpoint dashboard (`/api/import`) atau simpan ke file `.agents/muse-scraped-leads.json` dengan struktur berikut:
+Kirimkan payload HTTP `POST` ke endpoint dashboard (`/api/import`) dengan menyertakan header autentikasi `x-muse-secret` (atau simpan ke file `.agents/muse-scraped-leads.json`) dengan struktur berikut:
+
+```http
+POST /api/import
+Content-Type: application/json
+x-muse-secret: <MUSE_BRIDGE_SECRET>
+```
 
 ```json
 {
@@ -120,7 +126,7 @@ Kirimkan payload HTTP `POST` ke endpoint dashboard (`/api/import`) atau simpan k
       "suggestedHook": "Bengkel motor rating 4.7 dengan 45 ulasan di Sawangan",
       "aiResearch": {
         "pipelineStage": "QUEUED",
-        "chat1Message": "Halo kak, salam kenal dari tim developer KodeKiri (kodekiri.tech). Kebetulan kami lihat review Berkah Motor di Sawangan bagus dan ramai pelanggannya. Mau tanya kak, saat ini tokonya sudah ada web katalog sendiri atau pemesanan masih murni lewat WA & medsos aja? Kalau belum ada dan kakak berkenan, tim kami mau buatkan gambaran tampilan web 1 halaman singkat buat katalog tokonya kak, gratis tanpa komitmen apa pun. Kira-kira boleh kami buatkan?"
+        "chat1Message": "Halo kak, salam kenal dari tim developer KodeKiri. Kebetulan kami lihat review Berkah Motor di Sawangan bagus dan ramai pelanggannya. Mau tanya kak, saat ini tokonya sudah ada web katalog sendiri atau pemesanan masih murni lewat WA & medsos aja? Kalau belum ada dan kakak berkenan, tim kami mau buatkan gambaran tampilan web 1 halaman singkat buat katalog tokonya kak, gratis tanpa komitmen apa pun. Kira-kira boleh kami buatkan?"
       }
     }
   ]

@@ -240,12 +240,16 @@ test('extractBusinessIdentity and buildDefaultWaPitch clean SEO-stuffed store na
   const intlChat1 = buildDefaultWaPitch(internationalLead);
   assert.ok(intlChat1.includes('Hi there, reaching out from Tim Developer KodeKiri'));
   assert.ok(intlChat1.includes('Melbourne Coffee Roasters'));
+  assert.ok(intlChat1.includes('coffee roastery'));
+  // Does not hallucinate reviews when reviewCount is absent
+  assert.ok(!intlChat1.includes('positive customer reviews'));
   assert.ok(intlChat1.includes('one-page'));
   assert.ok(!intlChat1.includes('Halo Kak'));
 
   const intlChat2 = buildQualificationReplyDraft(internationalLead);
   assert.ok(intlChat2.includes('https://kodekiri.tech'));
   assert.ok(intlChat2.includes('Melbourne Coffee Roasters'));
+  assert.ok(intlChat2.includes('logo or photos'));
   assert.ok(!intlChat2.includes('Siap Kak'));
 
   const musePrompt = buildMuseMockupBridgePrompt(seoLead, {

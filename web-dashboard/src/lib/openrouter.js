@@ -393,7 +393,13 @@ export function buildDefaultWaPitch(lead = {}, settings = DEFAULT_AI_SETTINGS) {
 
   // English pitch for international prospects
   if (lead.language === 'en' || lead.geoScope === 'INTERNATIONAL') {
-    const enDraft = `Hi there, reaching out from ${agencyName}. We came across ${identity.cleanBrandName} and really loved your positive reviews and product quality. Quick question: do you currently have a dedicated one-page portfolio or catalog website for direct inquiries, or are you primarily handling orders through social media and messaging? If you would be open to it, our team would love to build a quick, free preview of a clean one-page web catalog for ${identity.cleanBrandName} (zero commitment required). Would it be okay if we put a draft together for you to see?`;
+    const hasReviews = Boolean(lead.reviewCount && parseInt(String(lead.reviewCount).replace(/[^\d]/g, ''), 10) > 0);
+    const reviewPhrase = hasReviews ? ' and noticed your positive customer reviews' : '';
+    const businessContext = identity.extractedSpecialty
+      ? ` your ${identity.extractedSpecialty.toLowerCase()} offerings`
+      : ` your ${identity.categoryName.toLowerCase()} business`;
+
+    const enDraft = `Hi there, reaching out from ${agencyName}. We came across ${identity.cleanBrandName}${reviewPhrase} and wanted to learn more about${businessContext}. Quick question: do you currently have a dedicated one-page portfolio or catalog website for direct inquiries, or are you primarily handling orders through social media and messaging? If you would be open to it, our team would love to build a quick, free preview of a clean one-page web catalog for ${identity.cleanBrandName} (zero commitment required). Would it be okay if we put a draft together for you to see?`;
     return humanizeGeneratedText(enDraft);
   }
 
@@ -411,7 +417,7 @@ export function buildQualificationReplyDraft(lead = {}, settings = DEFAULT_AI_SE
   const agencyWebsite = String(settings?.agencyWebsite || DEFAULT_AGENCY_WEBSITE).trim();
 
   if (lead.language === 'en' || lead.geoScope === 'INTERNATIONAL') {
-    const enReply = `Thank you! In the meantime, you can review our team profile and portfolio at ${agencyWebsite}. To tailor the one-page mockup specifically for ${identity.cleanBrandName}, could you let us know what your most requested product or service is? We will prepare the design preview so you can see if it fits. Zero commitment required.`;
+    const enReply = `Thank you! In the meantime, you can review our team profile and portfolio at ${agencyWebsite}. To tailor the one-page mockup specifically for ${identity.cleanBrandName}, could you let us know what your most requested product or service is, and whether you have a logo or photos you would like us to include? We will prepare the design preview so you can see if it fits. Zero commitment required.`;
     return humanizeGeneratedText(enReply);
   }
 

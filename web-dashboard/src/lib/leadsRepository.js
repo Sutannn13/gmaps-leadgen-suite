@@ -3,7 +3,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { openDb } from './db.js';
-import { evaluateGeographicEligibility } from './leadQualification.js';
+import {
+  evaluateGeographicEligibility,
+  hasMobileWhatsAppNumber,
+  normalizeWhatsAppTarget,
+} from './leadQualification.js';
 import {
   DEFAULT_AI_SETTINGS,
   buildDefaultWaPitch,
@@ -29,19 +33,17 @@ export function normalizeLeadKey(name = '', address = '') {
 }
 
 export function normalizePhoneKey(phone = '', whatsapp = '') {
-  let digits = String(whatsapp || phone || '').replace(/[^\d]/g, '');
-  if (digits.startsWith('0')) digits = '62' + digits.slice(1);
-  if (!digits.startsWith('62') && digits.length >= 8) digits = '62' + digits;
-  return digits.length >= 9 ? digits : '';
+  const candidate = String(whatsapp || phone || '').trim();
+  const normalized = normalizeWhatsAppTarget(candidate);
+  return normalized.length >= 8 ? normalized : '';
 }
 
 export function mapMuseScrapedRecordToLead(item, index = 0, nowIso = new Date().toISOString()) {
   const rawPhone = String(item.phone || '').trim();
-  const digits = rawPhone.replace(/[^\d]/g, '');
-  const isMobileWa =
-    digits.startsWith('08') ||
-    digits.startsWith('628') ||
-    (digits.startsWith('8') && digits.length >= 9);
+  const rawWhatsapp = String(item.whatsapp || '').trim();
+  const waCandidate = rawWhatsapp || rawPhone;
+  const isMobileWa = hasMobileWhatsAppNumber(rawPhone, rawWhatsapp);
+  const normalizedWa = isMobileWa ? normalizeWhatsAppTarget(waCandidate, item.geoScope) : '';
 
   const websiteStatus = String(item.websiteStatus || (item.website ? 'has_website' : 'no_website')).trim();
   // If websiteStatus is website_dead (HTTP 404 / domain expired), keep website='' so it is treated as a valid prospect needing a new site, while recording deadUrl in websiteNote
@@ -53,6 +55,14 @@ export function mapMuseScrapedRecordToLead(item, index = 0, nowIso = new Date().
     deadWebsiteUrl ? `(Eks Domain Mati: ${deadWebsiteUrl})` : '',
   ].filter(Boolean);
 
+  const geo = evaluateGeographicEligibility({
+    name: item.name,
+    categoryName: item.category || item.categoryName,
+    address: item.address,
+    phone: rawPhone,
+    whatsapp: waCandidate,
+  });
+
   const leadObj = {
     id: String(item.leadId || item.id || `tapos_${index + 1}`),
     name: String(item.name || '').trim(),
@@ -60,7 +70,7 @@ export function mapMuseScrapedRecordToLead(item, index = 0, nowIso = new Date().
     kelurahan: String(item.kelurahan || '').trim(),
     address: addressParts.join(' '),
     phone: rawPhone,
-    whatsapp: isMobileWa ? rawPhone : '',
+    whatsapp: normalizedWa,
     website: activeWebsite,
     websiteStatus,
     deadWebsiteUrl,
@@ -74,20 +84,8 @@ export function mapMuseScrapedRecordToLead(item, index = 0, nowIso = new Date().
         `${item.name || ''} ${item.address || 'Tapos Depok'}`.trim()
       )}`,
     isChain: Boolean(item.isChain),
-    geoScope: item.geoScope || evaluateGeographicEligibility({
-      name: item.name,
-      categoryName: item.category || item.categoryName,
-      address: item.address,
-      phone: rawPhone,
-      whatsapp: isMobileWa ? rawPhone : '',
-    }).scope,
-    language: item.language || evaluateGeographicEligibility({
-      name: item.name,
-      categoryName: item.category || item.categoryName,
-      address: item.address,
-      phone: rawPhone,
-      whatsapp: isMobileWa ? rawPhone : '',
-    }).language,
+    geoScope: item.geoScope || geo.scope,
+    language: item.language || geo.language,
     extractedSpecialty: String(item.extractedSpecialty || '').trim(),
     suggestedHook: String(item.suggestedHook || '').trim(),
     chatStatus: item.chatStatus || 'BELUM',
